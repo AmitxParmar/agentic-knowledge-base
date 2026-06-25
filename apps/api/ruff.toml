@@ -1,0 +1,17 @@
+# ruff.toml — repo-root config, applies to apps/ and src/
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E501",   # line length — formatter handles it
+    "B008",   # Depends() in function default args (FastAPI pattern)
+]
+
+[lint.isort]
+known-first-party = ["src", "apps"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
