@@ -103,4 +103,5 @@ uvicorn.log
 # Added by code-review-graph
 .code-review-graph/
 .data/
+graphify-out/
 .commandcode/
