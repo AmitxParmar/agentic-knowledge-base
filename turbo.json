@@ -1,6 +1,12 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "globalPassThroughEnv": [
+    "USERNAME",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -14,6 +20,10 @@
       "dependsOn": ["^check-types"]
     },
     "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "worker": {
       "cache": false,
       "persistent": true
     }

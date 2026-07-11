@@ -7,7 +7,7 @@ Dependencies: settings, logfire, langfuse
 Scope:      Wiring only. Actual span/trace calls live in each feature module.
 
 Usage:
-    from apps.api.src.observability.setup import configure, get_langfuse
+    from src.observability.setup import configure, get_langfuse
     configure()           # in lifespan
     lf = get_langfuse()   # in agent/retrieval code
 """
@@ -18,16 +18,17 @@ import logging
 from functools import lru_cache
 
 import logfire
+from fastapi import FastAPI
 from langfuse import Langfuse
 
-from apps.api.app.settings import settings
+from app.settings import settings
 
 logger = logging.getLogger(__name__)
 
 _configured = False
 
 
-def configure() -> None:
+def configure(app: FastAPI) -> None:
     """
     Wire up Logfire and validate Langfuse credentials.
     Safe to call multiple times — only runs once.
@@ -38,16 +39,16 @@ def configure() -> None:
 
     # ── Logfire ───────────────────────────────────────────────────────────
     if settings.LOGFIRE_TOKEN:
-        logfire.configure(token=settings.LOGFIRE_TOKEN)
+        _ = logfire.configure(token=settings.LOGFIRE_TOKEN)
     else:
         # Dev mode: log to console, no remote ingest
-        logfire.configure(send_to_logfire=False)
+        _ = logfire.configure(send_to_logfire=False)
         logger.info("logfire: no token — console-only mode")
 
     # Instrument FastAPI, SQLAlchemy, httpx automatically
-    logfire.instrument_fastapi()     # patches app after it's created
-    logfire.instrument_sqlalchemy()
-    logfire.instrument_httpx()
+    _ = logfire.instrument_fastapi(app)     # patches app after it's created
+    _ = logfire.instrument_sqlalchemy()
+    _ = logfire.instrument_httpx()
 
     _configured = True
     logfire.info("observability.configured", env=settings.APP_ENV)

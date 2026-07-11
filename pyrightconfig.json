@@ -1,0 +1,53 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/pyright/refs/heads/main/packages/vscode-pyright/schemas/pyrightconfig.schema.json",
+
+  "include": ["apps/api/app", "apps/api/src", "apps/api/tests"],
+
+  "exclude": [
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+    "**/.venv",
+    "apps/api/alembic/versions"
+  ],
+
+  "pythonVersion": "3.11",
+  "pythonPlatform": "All",
+  "executionEnvironments": [
+    {
+      "root": "apps/api",
+      "extraPaths": ["apps/api"]
+    }
+  ],
+  "typeCheckingMode": "strict",
+
+  "useLibraryCodeForTypes": true,
+
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false,
+  "reportMissingTypeStubs": false,
+
+  "reportUnknownArgumentType": true,
+  "reportUnknownLambdaType": true,
+  "reportUnknownMemberType": true,
+  "reportUnknownParameterType": true,
+  "reportUnknownVariableType": true,
+
+  "reportUnusedCallResult": true,
+  "reportUnusedCoroutine": true,
+
+  "reportImplicitOverride": true,
+  "reportUnannotatedClassAttribute": false,
+  "reportIncompatibleVariableOverride": false,
+  "reportUnnecessaryTypeIgnoreComment": true,
+
+  "reportUntypedFunctionDecorator": false,
+  "reportUntypedBaseClass": false,
+
+  "reportPrivateImportUsage": false,
+
+  "strict": [  
+    "apps/api/app",
+    "apps/api/src"
+]
+}

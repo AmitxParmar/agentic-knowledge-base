@@ -37,3 +37,70 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# ==========================
+# Python
+# ==========================
+
+# Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type checking
+.mypy_cache/
+.pytype/
+.pyre/
+
+# Linting
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Logs
+*.log
+
+# Local databases
+*.db
+*.sqlite3
+
+# FastAPI / Uvicorn
+uvicorn.log
+
+# IDEs (if not already ignored by Turborepo)
+.vscode/
+.idea/
+.agents/
+.kiro/
+.gemini/
+.claude/
+.mimocode
+.basedpyright
+# Added by code-review-graph
+.code-review-graph/
+.data/
+.commandcode/

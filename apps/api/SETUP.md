@@ -33,7 +33,7 @@ alembic upgrade head
 
 ```bash
 # API gateway
-uvicorn apps.api.app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000
 
 # Async worker (ingestion jobs)
 arq apps.worker.main.WorkerSettings

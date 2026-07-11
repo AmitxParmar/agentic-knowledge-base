@@ -83,7 +83,7 @@ def register_error_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(Exception)
-    async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         logfire.error(
             "unhandled_error",
             error_type=type(exc).__name__,

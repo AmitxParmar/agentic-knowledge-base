@@ -9,8 +9,9 @@ Never import os.getenv anywhere else in the codebase — import `settings` inste
 """
 
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic import Field, HttpUrl
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,15 +37,15 @@ class Settings(BaseSettings):
 
     # Groq
     MODEL_GATEWAY_GROQ_API_KEY: str = Field(default="", description="Groq API key")
-    MODEL_GATEWAY_GROQ_BASE_URL: HttpUrl = Field(
-        default="https://api.groq.com/openai/v1",  # type: ignore[assignment]
+    MODEL_GATEWAY_GROQ_BASE_URL: str = Field(
+        default="https://api.groq.com/openai/v1",
         description="Groq OpenAI-compatible endpoint",
     )
 
     # OpenRouter (fallback)
     MODEL_GATEWAY_OPENROUTER_API_KEY: str = Field(default="", description="OpenRouter API key")
-    MODEL_GATEWAY_OPENROUTER_BASE_URL: HttpUrl = Field(
-        default="https://openrouter.ai/api/v1",  # type: ignore[assignment]
+    MODEL_GATEWAY_OPENROUTER_BASE_URL: str = Field(
+        default="https://openrouter.ai/api/v1",
         description="OpenRouter OpenAI-compatible endpoint",
     )
     MODEL_GATEWAY_OPENROUTER_MODEL: str = Field(
@@ -62,6 +63,20 @@ class Settings(BaseSettings):
         description="BGE-Reranker-v2-m3 rerank endpoint (self-hosted)",
     )
 
+    # ── LM Studio (local inference server) ────────────────────────────────
+    LM_STUDIO_BASE_URL: str = Field(
+        default="http://localhost:12345",
+        description="LM Studio OpenAI-compatible base URL",
+    )
+    LM_STUDIO_EMBEDDING_MODEL: str = Field(
+        default="text-embedding-bge-m3",
+        description="Embedding model loaded in LM Studio",
+    )
+    LM_STUDIO_RERANKER_MODEL: str = Field(
+        default="text-embedding-bge-reranker-v2-m3",
+        description="Reranker model loaded in LM Studio",
+    )
+
     # ── Observability ─────────────────────────────────────────────────────
     LOGFIRE_TOKEN: str = Field(default="", description="Logfire ingest token")
     LANGFUSE_PUBLIC_KEY: str = Field(default="", description="Langfuse public key (N3)")
@@ -75,6 +90,11 @@ class Settings(BaseSettings):
     )
 
     # ── App ───────────────────────────────────────────────────────────────
+    UPLOAD_DIR: str = Field(
+        default=str(Path.cwd() / ".data" / "uploads"),
+        description="Writable directory for raw uploaded source files",
+    )
+
     APP_ENV: str = Field(default="development", description="development | production")
     APP_DEBUG: bool = Field(default=False)
 

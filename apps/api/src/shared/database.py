@@ -11,12 +11,11 @@ Scope:      Engine setup and get_session dependency only.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from apps.api.app.settings import settings
+from app.settings import settings
 
 # ── Engine (one per process) ──────────────────────────────────────────────────
 # ponytail: pool_pre_ping=True catches stale connections cheaply
