@@ -63,6 +63,20 @@
   }
   #themeToggle:hover { color: var(--ink); border-color: var(--muted); }
 
+  /* ── legend ──────────────────────────────── */
+  .legend {
+    position: absolute; left: 16px; top: 12px; z-index: 2;
+    display: flex; gap: 14px; align-items: center;
+    font-family: var(--mono); font-size: 9.5px; color: var(--muted);
+    letter-spacing: 0.05em; text-transform: uppercase;
+    background: var(--surface); border: 1px solid var(--line-soft);
+    border-radius: 999px; padding: 5px 12px; opacity: 0.92;
+  }
+  .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 5px; vertical-align: -1px; }
+  .sw.live { border: 1.5px solid var(--line); background: var(--surface); }
+  .sw.planned { border: 1.5px dashed var(--gold); background: var(--zone); }
+  .sw.ext { border: 1.5px dashed var(--muted); background: transparent; }
+
   /* ── stage ───────────────────────────────── */
   .stage { flex: 1; position: relative; min-height: 0; }
   .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
@@ -82,6 +96,8 @@
   .node.store rect { fill: var(--surface2); }
   .node.do rect { fill: var(--olive-soft); stroke: var(--olive); }
   .node.ext rect { stroke-dasharray: 6 3; }
+  .node.planned rect { fill: var(--zone); stroke: var(--gold); stroke-dasharray: 6 4; }
+  .node.planned .k { fill: var(--gold); }
 
   .edge { stroke: var(--muted); stroke-width: 1.5; fill: none; marker-end: url(#a-mut); transition: opacity .2s ease, stroke .2s ease; opacity: 0.55; }
   .edge.dash { stroke-dasharray: 5 4; }
@@ -116,10 +132,10 @@
   #flowcap .fname { font-family: var(--mono); font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--clay); margin-bottom: 6px; }
   #flowcap ol { margin-left: 18px; }
   #flowcap li { font-size: 12.5px; line-height: 1.55; }
-  .src { position: absolute; top: 10px; right: 16px; font-family: var(--mono); font-size: 9.5px; color: var(--muted); opacity: 0.8; }
   @media (max-width: 880px) {
     body { overflow: auto; }
     .stage { min-height: 80vh; }
+    .legend { position: static; margin: 8px 16px 0; }
     #detail { position: static; width: auto; margin: 10px 16px; }
     #flowcap { position: static; margin: 0 16px 16px; max-width: none; }
   }
@@ -130,23 +146,28 @@
 <div class="bar">
   <div>
     <h1>Agentic Research Workspace — the stack</h1>
-    <div class="sub">3 agents · hybrid retrieval · semantic cache · turbovec + langgraph + bge-m3</div>
+    <div class="sub">langgraph researcher loop · pgvector + tsvector in neon · cohere embed + rerank · litellm gateway · one render service</div>
   </div>
   <div class="spacer"></div>
   <div class="chips" id="chips">
     <button class="chip on" data-flow="all">Everything</button>
-    <button class="chip" data-flow="cachehit">Cache hit</button>
-    <button class="chip" data-flow="fullrun">Full research run</button>
-    <button class="chip" data-flow="reflection">Reflection loop</button>
-    <button class="chip" data-flow="planreuse">Plan reuse</button>
+    <button class="chip" data-flow="fullrun">Research run</button>
+    <button class="chip" data-flow="selfcorrect">Self-correct (planned)</button>
+    <button class="chip" data-flow="decompose">Decompose (planned)</button>
     <button class="chip" data-flow="ingestion">Ingestion</button>
-    <button class="chip" data-flow="nightlyeval">Nightly eval</button>
+    <button class="chip" data-flow="backfill">Backfill</button>
+    <button class="chip" data-flow="keepwarm">Keep-warm</button>
   </div>
   <button id="themeToggle">Theme</button>
 </div>
 
 <div class="stage" id="stage">
-<svg viewBox="0 0 1940 1520" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Agentic Research Workspace architecture diagram">
+<div class="legend">
+  <span><span class="sw live"></span>live</span>
+  <span><span class="sw planned"></span>planned · needs spec</span>
+  <span><span class="sw ext"></span>external api</span>
+</div>
+<svg viewBox="0 0 1890 1280" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Agentic Research Workspace architecture diagram">
   <defs>
     <marker id="a-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" style="fill: var(--muted)"/>
@@ -156,498 +177,395 @@
     </marker>
   </defs>
 
-  <!-- ══ ZONES ══════════════════════════════ -->
-  <g class="zone"><rect x="40" y="110" width="230" height="320"/>
-    <text class="ztitle" x="60" y="140">Clients</text>
-    <text class="zsub" x="60" y="158">two entry points</text></g>
+  <!-- ZONES -->
+  <g class="zone"><rect x="40" y="110" width="200" height="300"/>
+    <text class="ztitle" x="60" y="138">Clients</text>
+    <text class="zsub" x="60" y="154">chat + rest</text></g>
 
-  <g class="zone"><rect x="300" y="110" width="250" height="430"/>
-    <text class="ztitle" x="320" y="140">API Gateway</text>
-    <text class="zsub" x="320" y="158">fastapi · rest + websocket</text></g>
+  <g class="zone"><rect x="270" y="110" width="210" height="190"/>
+    <text class="ztitle" x="290" y="138">API Gateway</text>
+    <text class="zsub" x="290" y="154">rest + websocket</text></g>
 
-  <g class="zone"><rect x="590" y="110" width="300" height="460"/>
-    <text class="ztitle" x="610" y="140">Retrieval Engine</text>
-    <text class="zsub" x="610" y="158">hybrid search · rerank</text></g>
+  <g class="zone"><rect x="510" y="110" width="520" height="560"/>
+    <text class="ztitle" x="530" y="138">Agentic Orchestration</text>
+    <text class="zsub" x="530" y="154">langgraph · live loop + planned nodes</text></g>
 
-  <g class="zone"><rect x="920" y="110" width="420" height="680"/>
-    <text class="ztitle" x="940" y="140">Multi-Agent Orchestration</text>
-    <text class="zsub" x="940" y="158">langgraph · planner → researcher → critic</text></g>
+  <g class="zone"><rect x="1060" y="110" width="260" height="420"/>
+    <text class="ztitle" x="1080" y="138">Retrieval</text>
+    <text class="zsub" x="1080" y="154">all in postgres · no separate vector db</text></g>
 
-  <g class="zone"><rect x="1380" y="110" width="250" height="430"/>
-    <text class="ztitle" x="1400" y="140">Memory</text>
-    <text class="zsub" x="1400" y="158">session + long-term, with pruning</text></g>
+  <g class="zone"><rect x="1350" y="110" width="260" height="340"/>
+    <text class="ztitle" x="1370" y="138">Model Gateway</text>
+    <text class="zsub" x="1370" y="154">litellm · single interface</text></g>
 
-  <g class="zone"><rect x="1660" y="110" width="250" height="460"/>
-    <text class="ztitle" x="1680" y="140">Storage</text>
-    <text class="zsub" x="1680" y="158">one source of truth per data type</text></g>
+  <g class="zone"><rect x="1640" y="110" width="230" height="340"/>
+    <text class="ztitle" x="1660" y="138">Data Stores</text>
+    <text class="zsub" x="1660" y="154">neon · upstash · r2</text></g>
 
-  <g class="zone"><rect x="40" y="840" width="1550" height="190"/>
-    <text class="ztitle" x="60" y="870">Ingestion Pipeline</text>
-    <text class="zsub" x="60" y="888">async workers · celery / arq · runs offline</text></g>
+  <g class="zone"><rect x="40" y="800" width="1140" height="190"/>
+    <text class="ztitle" x="60" y="828">Ingestion Pipeline</text>
+    <text class="zsub" x="60" y="844">arq worker · off the request path</text></g>
 
-  <g class="zone"><rect x="40" y="1080" width="1860" height="180"/>
-    <text class="ztitle" x="60" y="1110">Output Guardrail &amp; Observability</text>
-    <text class="zsub" x="60" y="1128">every run is graded, traced, and metered</text></g>
+  <g class="zone"><rect x="1210" y="800" width="660" height="190"/>
+    <text class="ztitle" x="1230" y="828">Observability &amp; Eval</text>
+    <text class="zsub" x="1230" y="844">logfire live · eval + cost planned</text></g>
 
-  <g class="zone"><rect x="1360" y="550" width="280" height="280"/>
-    <text class="ztitle" x="1380" y="580">Model Routing &amp; Tools</text>
-    <text class="zsub" x="1380" y="598">shared by all three agents</text></g>
+  <g class="zone"><rect x="40" y="1030" width="1830" height="210"/>
+    <text class="ztitle" x="60" y="1058">Deployment</text>
+    <text class="zsub" x="60" y="1074">one render web service: alembic + arq + uvicorn · keep-warm cron</text></g>
 
-  <g class="zone"><rect x="40" y="1300" width="900" height="180"/>
-    <text class="ztitle" x="60" y="1330">Security &amp; Access Control</text>
-    <text class="zsub" x="60" y="1348">every retrieval and tool call is scoped</text></g>
-
-  <g class="zone"><rect x="980" y="1300" width="920" height="180"/>
-    <text class="ztitle" x="1000" y="1330">Deployment &amp; Runtime</text>
-    <text class="zsub" x="1000" y="1348">where each piece actually runs</text></g>
-
-  <!-- ══ EDGES ══════════════════════════════ -->
-  <path class="edge" id="e-chat-fastapi" d="M250,220 C280,215 295,225 320,220"/>
-  <path class="edge" id="e-api-fastapi" d="M250,344 C285,340 290,250 320,225"/>
-  <path class="edge" id="e-fastapi-guard" d="M425,270 L425,294"/>
-  <path class="edge" id="e-guard-cache" d="M425,394 L425,418"/>
-  <path class="edge dash" id="e-cache-chathit" d="M320,468 C200,500 150,350 155,270"/>
-  <path class="edge" id="e-cache-breaker" d="M530,468 C700,468 750,350 940,307"/>
-  <path class="edge" id="e-orch-breaker" d="M1130,248 L1130,268"/>
-  <path class="edge" id="e-breaker-planner" d="M1030,346 L1030,370"/>
-  <path class="edge" id="e-planner-researcher" d="M1030,470 C1060,480 1100,485 1130,494"/>
-  <path class="edge dash" id="e-plancache-planner" d="M1140,420 L1120,420"/>
-  <path class="edge dash" id="e-plancache-researcher" d="M1230,470 C1230,480 1250,485 1250,494"/>
-  <path class="edge" id="e-researcher-rewrite" d="M940,556 C880,500 830,300 870,220"/>
-  <path class="edge" id="e-rewrite-hybrid" d="M740,270 L740,294"/>
-  <path class="edge" id="e-hybrid-turbovec" d="M870,356 C1100,356 1400,356 1680,356"/>
-  <path class="edge" id="e-hybrid-postgres" d="M870,356 C1100,300 1400,250 1680,220"/>
-  <path class="edge" id="e-hybrid-rerank" d="M740,418 L740,442"/>
-  <path class="edge" id="e-rerank-researcher" d="M870,492 C900,510 915,530 940,556"/>
-  <path class="edge dash" id="e-researcher-workingmem" d="M1320,556 C1370,500 1390,300 1400,220"/>
-  <path class="edge" id="e-researcher-critic" d="M1130,618 L1130,642"/>
-  <path class="edge dash" id="e-critic-researcher" d="M940,704 C860,680 860,580 940,556"/>
-  <path class="edge" id="e-critic-outputguard" d="M1130,766 C1000,900 500,1000 270,1140"/>
-  <path class="edge dash" id="e-planner-modelgateway" d="M1120,420 C1220,460 1320,560 1380,650"/>
-  <path class="edge" id="e-researcher-modelgateway" d="M1320,540 C1345,580 1360,610 1380,650"/>
-  <path class="edge" id="e-critic-modelgateway" d="M1320,690 C1345,670 1360,660 1380,655"/>
-  <path class="edge" id="e-researcher-mcptool" d="M1320,572 C1345,630 1365,710 1380,775"/>
-  <path class="edge dash" id="e-guard-rbac" d="M425,394 C300,700 200,1100 160,1360"/>
-  <path class="edge dash" id="e-scopedretrieval-hybrid" d="M380,1360 C500,1000 600,600 740,418"/>
-  <path class="edge dash" id="e-secretmgmt-modelgateway" d="M600,1360 C900,1000 1200,800 1500,710"/>
-  <path class="edge dash" id="e-toolguardrails-mcptool" d="M820,1360 C1100,1000 1300,850 1500,780"/>
-  <path class="edge dash" id="e-outputguard-cache" d="M150,1140 C100,900 200,650 425,518"/>
-  <path class="edge dash" id="e-outputguard-chat" d="M60,1190 C0,800 0,400 155,270"/>
-  <path class="edge" id="e-researcher-convsummaries" d="M1320,556 C1360,500 1380,400 1400,344"/>
-  <path class="edge" id="e-convsummaries-semanticmem" d="M1505,394 L1505,418"/>
-  <path class="edge dash" id="e-semanticmem-planner" d="M1400,468 C1300,460 1200,440 1120,420"/>
-  <path class="edge dash" id="e-api-workers" d="M155,394 C155,600 155,750 155,900"/>
-  <path class="edge" id="e-workers-docling" d="M250,950 L290,950"/>
-  <path class="edge" id="e-workers-whisper" d="M250,950 C300,990 400,990 480,950"/>
-  <path class="edge" id="e-workers-coderepo" d="M250,950 C300,1020 550,1020 670,950"/>
-  <path class="edge" id="e-docling-chunker" d="M375,900 C500,820 800,820 995,900"/>
-  <path class="edge" id="e-whisper-chunker" d="M565,900 C700,850 850,850 995,900"/>
-  <path class="edge" id="e-coderepo-chunker" d="M860,950 L900,950"/>
-  <path class="edge" id="e-chunker-metadata" d="M1090,950 L1120,950"/>
-  <path class="edge" id="e-metadata-embedder" d="M1330,950 L1360,950"/>
-  <path class="edge" id="e-embedder-turbovec" d="M1550,950 C1700,900 1800,650 1785,418"/>
-  <path class="edge" id="e-embedder-postgres" d="M1550,950 C1680,950 1780,600 1785,270"/>
-  <path class="edge" id="e-workers-pdfstorage" d="M155,900 C700,750 1400,500 1680,492"/>
-  <path class="edge dash" id="e-pdfstorage-docling" d="M1785,542 C1400,700 600,750 375,900"/>
-  <path class="edge" id="e-researcher-langfuse" d="M1130,618 C1000,800 800,1000 720,1140"/>
-  <path class="edge" id="e-critic-langfuse" d="M1130,766 C1000,900 850,1050 820,1140"/>
-  <path class="edge" id="e-langfuse-dashboards" d="M930,1190 C1100,1190 1300,1190 1450,1190"/>
-  <path class="edge dash" id="e-ragas-researcher" d="M1190,1140 C1200,950 1240,750 1250,618"/>
-  <path class="edge dash" id="e-ragas-critic" d="M1300,1140 C1300,1000 1280,850 1250,766"/>
-  <path class="edge" id="e-ragas-dashboards" d="M1420,1190 L1450,1190"/>
+  <!-- EDGES (under nodes) -->
+  <path class="edge" id="e-chat-fastapi" d="M240,215 L288,215"/>
+  <path class="edge" id="e-api-fastapi" d="M240,325 C260,320 275,260 288,222"/>
+  <path class="edge" id="e-fastapi-langgraph" d="M460,215 C490,212 505,205 528,198"/>
+  <path class="edge dash" id="e-fastapi-worker" d="M375,260 C320,520 170,720 150,850"/>
+  <path class="edge dash" id="e-langgraph-decomposer" d="M670,226 L648,250"/>
+  <path class="edge" id="e-langgraph-researcher" d="M870,226 L892,250"/>
+  <path class="edge dash" id="e-decomposer-researcher" d="M760,305 L778,305"/>
+  <path class="edge" id="e-researcher-breaker" d="M895,360 L895,378"/>
+  <path class="edge dash" id="e-breaker-confidence" d="M780,420 L762,420"/>
+  <path class="edge dash" id="e-confidence-selfcorrect" d="M645,460 L645,488"/>
+  <path class="edge dash" id="e-selfcorrect-researcher" d="M760,530 C830,530 895,430 895,362"/>
+  <path class="edge dash" id="e-breaker-critic" d="M895,460 L895,488"/>
+  <path class="edge" id="e-researcher-hybrid" d="M1010,290 C1040,270 1060,235 1078,215"/>
+  <path class="edge" id="e-researcher-modelgateway" d="M1010,325 C1150,300 1300,240 1368,215"/>
+  <path class="edge" id="e-hybrid-pgvector" d="M1150,250 L1135,270"/>
+  <path class="edge" id="e-hybrid-tsvector" d="M1230,250 L1245,270"/>
+  <path class="edge" id="e-pgv-rerank" d="M1132,340 L1185,357"/>
+  <path class="edge" id="e-tsv-rerank" d="M1247,340 L1195,357"/>
+  <path class="edge" id="e-rerank-researcher" d="M1080,392 C1045,400 1018,352 1012,324"/>
+  <path class="edge dash" id="e-query-cohere" d="M1300,215 C1325,260 1350,330 1368,392"/>
+  <path class="edge" id="e-litellm-groq" d="M1450,250 L1428,270"/>
+  <path class="edge dash" id="e-litellm-openrouter" d="M1510,250 L1532,270"/>
+  <path class="edge dash" id="e-citations-neon" d="M1010,320 C1250,340 1550,250 1658,220"/>
+  <path class="edge" id="e-worker-chunker" d="M230,895 L268,895"/>
+  <path class="edge" id="e-chunker-embedder" d="M440,895 L478,895"/>
+  <path class="edge" id="e-embedder-neon" d="M650,885 C1200,860 1580,320 1658,258"/>
+  <path class="edge" id="e-ingest-cohere" d="M565,850 C800,660 1250,480 1460,432"/>
+  <path class="edge dash" id="e-worker-r2" d="M230,905 C800,840 1500,470 1658,398"/>
+  <path class="edge dash" id="e-backfill-cohere" d="M800,850 C1000,700 1350,520 1470,432"/>
+  <path class="edge dash" id="e-backfill-neon" d="M910,885 C1350,820 1600,340 1662,262"/>
+  <path class="edge dash" id="e-researcher-logfire" d="M1005,350 C1150,600 1200,780 1248,846"/>
+  <path class="edge" id="e-keepwarm-render" d="M520,1120 L482,1126"/>
+  <path class="edge dash" id="e-github-render" d="M1100,1120 C900,1112 700,1115 482,1136"/>
+  <path class="edge dash" id="e-vercel-chat" d="M860,1112 C420,1100 170,620 158,262"/>
 
   <!-- edge labels -->
-  <text class="elbl" data-e="e-guard-cache" x="450" y="408">embed + cosine check</text>
-  <text class="elbl" data-e="e-cache-breaker" x="640" y="392" text-anchor="middle">miss → orchestration</text>
-  <text class="elbl" data-e="e-planner-researcher" x="1055" y="488" text-anchor="middle">sub-task roadmap</text>
-  <text class="elbl" data-e="e-plancache-researcher" x="1262" y="486">adapted plan, skip Planner</text>
-  <text class="elbl" data-e="e-researcher-rewrite" x="800" y="380">HyDE expansion</text>
-  <text class="elbl" data-e="e-hybrid-rerank" x="752" y="434">to rerank</text>
-  <text class="elbl" data-e="e-rerank-researcher" x="888" y="500">reranked evidence</text>
-  <text class="elbl" data-e="e-researcher-critic" x="1140" y="634" text-anchor="end">draft report</text>
-  <text class="elbl" data-e="e-critic-researcher" x="850" y="630" text-anchor="end">evidence gap → retry</text>
-  <text class="elbl" data-e="e-critic-outputguard" x="680" y="1020" text-anchor="middle">groundedness check</text>
-  <text class="elbl" data-e="e-api-workers" x="166" y="650">upload triggers job</text>
-  <text class="elbl" data-e="e-embedder-turbovec" x="1700" y="690">vectors</text>
-  <text class="elbl" data-e="e-embedder-postgres" x="1740" y="600">metadata + refs</text>
-  <text class="elbl" data-e="e-workers-pdfstorage" x="900" y="640">raw file saved to disk</text>
-  <text class="elbl" data-e="e-researcher-modelgateway" x="1345" y="600">every LLM call</text>
-  <text class="elbl" data-e="e-researcher-mcptool" x="1335" y="700">tool calls</text>
-  <text class="elbl" data-e="e-langfuse-dashboards" x="1190" y="1182" text-anchor="middle">cache rate · latency · cost</text>
-  <text class="elbl" data-e="e-ragas-researcher" x="1262" y="900">nightly replay</text>
+  <text class="elbl" data-e="e-fastapi-worker" x="180" y="600">upload → enqueue</text>
+  <text class="elbl" data-e="e-decomposer-researcher" x="769" y="296" text-anchor="middle">sub-questions</text>
+  <text class="elbl" data-e="e-breaker-critic" x="907" y="455" text-anchor="start">draft review</text>
+  <text class="elbl" data-e="e-selfcorrect-researcher" x="805" y="522" text-anchor="end">gap → retry</text>
+  <text class="elbl" data-e="e-researcher-hybrid" x="1040" y="232" text-anchor="end">retrieve_evidence</text>
+  <text class="elbl" data-e="e-researcher-modelgateway" x="1170" y="238" text-anchor="middle">every llm call</text>
+  <text class="elbl" data-e="e-hybrid-pgvector" x="1118" y="246" text-anchor="end">dense</text>
+  <text class="elbl" data-e="e-hybrid-tsvector" x="1262" y="246" text-anchor="start">keyword</text>
+  <text class="elbl" data-e="e-pgv-rerank" x="1205" y="350" text-anchor="start">candidates</text>
+  <text class="elbl" data-e="e-rerank-researcher" x="1042" y="420" text-anchor="end">reranked evidence</text>
+  <text class="elbl" data-e="e-query-cohere" x="1352" y="300" text-anchor="middle">query embed</text>
+  <text class="elbl" data-e="e-litellm-openrouter" x="1546" y="260" text-anchor="start">fallback</text>
+  <text class="elbl" data-e="e-citations-neon" x="1330" y="310" text-anchor="middle">citations persisted</text>
+  <text class="elbl" data-e="e-embedder-neon" x="1250" y="560" text-anchor="middle">chunks + vectors</text>
+  <text class="elbl" data-e="e-ingest-cohere" x="985" y="600" text-anchor="middle">embed-english-v3.0</text>
+  <text class="elbl" data-e="e-worker-r2" x="950" y="756" text-anchor="middle">raw files</text>
+  <text class="elbl" data-e="e-backfill-cohere" x="1120" y="640" text-anchor="middle">backfill via cohere</text>
+  <text class="elbl" data-e="e-researcher-logfire" x="1210" y="700" text-anchor="middle">spans</text>
+  <text class="elbl" data-e="e-keepwarm-render" x="500" y="1106" text-anchor="middle">GET /health · 10 min</text>
+  <text class="elbl" data-e="e-github-render" x="795" y="1100" text-anchor="middle">deploy on push</text>
+  <text class="elbl" data-e="e-vercel-chat" x="305" y="690" text-anchor="middle">serves ui</text>
 
-  <!-- ══ NODES: clients ════════════════════ -->
+  <!-- NODES: clients -->
   <g class="node" data-k="client-chat">
-    <rect x="60" y="170" width="190" height="100"/>
-    <text class="t" x="78" y="197">Chat / Voice UI</text>
-    <text class="m" x="78" y="219">WebSocket · live traces</text>
-    <text class="m" x="78" y="237">Next.js · browser + mobile</text>
+    <rect x="70" y="170" width="170" height="90"/>
+    <text class="t" x="88" y="197">Next.js Chat UI</text>
+    <text class="m" x="88" y="219">WebSocket · stage updates</text>
+    <text class="m" x="88" y="237">deployed on Vercel</text>
   </g>
   <g class="node" data-k="client-api">
-    <rect x="60" y="294" width="190" height="100"/>
-    <text class="t" x="78" y="321">API / CLI Client</text>
-    <text class="m" x="78" y="343">REST · Bearer token</text>
-    <text class="m" x="78" y="361">batch reports, integrations</text>
+    <rect x="70" y="280" width="170" height="90"/>
+    <text class="t" x="88" y="307">REST / CLI Client</text>
+    <text class="m" x="88" y="329">Bearer token</text>
+    <text class="m" x="88" y="347">upload + ask endpoints</text>
   </g>
 
-  <!-- ══ NODES: gateway ════════════════════ -->
+  <!-- NODES: gateway -->
   <g class="node" data-k="fastapi">
-    <rect x="320" y="170" width="210" height="100"/>
-    <text class="t" x="338" y="197">FastAPI Gateway</text>
-    <text class="m" x="338" y="219">REST + WebSocket · ASGI</text>
-    <text class="m" x="338" y="237">auth, routing, rate limit</text>
-  </g>
-  <g class="node gate" data-k="input-guard">
-    <rect x="320" y="294" width="210" height="100"/>
-    <text class="t" x="338" y="321">Input Guardrail</text>
-    <text class="m" x="338" y="343">LLM Guard</text>
-    <text class="m" x="338" y="361">injection + PII, fail-closed</text>
-  </g>
-  <g class="node gate" data-k="cache-check">
-    <rect x="320" y="418" width="210" height="100"/>
-    <text class="t" x="338" y="445">Semantic Cache Check</text>
-    <text class="m" x="338" y="467">Redis 8 Vector Sets</text>
-    <text class="m" x="338" y="485">cosine ≥0.85 skips agents</text>
+    <rect x="290" y="170" width="170" height="90"/>
+    <text class="t" x="308" y="197">FastAPI Gateway</text>
+    <text class="m" x="308" y="219">REST + WebSocket</text>
+    <text class="m" x="308" y="237">auth · routers · /health</text>
   </g>
 
-  <!-- ══ NODES: retrieval ══════════════════ -->
-  <g class="node" data-k="rewrite">
-    <rect x="610" y="170" width="260" height="100"/>
-    <text class="t" x="628" y="197">Query Rewrite · HyDE</text>
-    <text class="m" x="628" y="219">Qwen3 4B (Ollama)</text>
-    <text class="m" x="628" y="237">expands ambiguous queries</text>
+  <!-- NODES: orchestration -->
+  <g class="node" data-k="langgraph">
+    <rect x="530" y="170" width="480" height="56"/>
+    <text class="t" x="548" y="193">LangGraph Runtime</text>
+    <text class="m" x="548" y="212">state graph · researcher loop entry</text>
   </g>
-  <g class="node" data-k="hybrid">
-    <rect x="610" y="294" width="260" height="124"/>
-    <text class="t" x="628" y="320">Hybrid Search + RRF</text>
-    <text class="m" x="628" y="340">Turbovec dense ⊕ Postgres BM25</text>
-    <text class="m" x="628" y="358">metadata filter → ID allowlist</text>
-    <text class="m" x="628" y="376">merged via Reciprocal Rank Fusion</text>
+  <g class="node planned" data-k="decomposer">
+    <rect x="530" y="250" width="230" height="110"/>
+    <text class="k" x="548" y="276">planned · needs spec</text>
+    <text class="t" x="548" y="295">Query Decomposer</text>
+    <text class="m" x="548" y="317">complex q → sub-questions</text>
+    <text class="m" x="548" y="335">fan-out retrieve → synth</text>
   </g>
-  <g class="node" data-k="rerank">
-    <rect x="610" y="442" width="260" height="100"/>
-    <text class="t" x="628" y="469">Cross-Encoder Rerank</text>
-    <text class="m" x="628" y="491">BGE-Reranker-v2-m3</text>
-    <text class="m" x="628" y="509">maximizes context precision</text>
-  </g>
-
-  <!-- ══ NODES: agents ═════════════════════ -->
-  <g class="node" data-k="orchestrator">
-    <rect x="940" y="170" width="380" height="78"/>
-    <text class="t" x="958" y="196">LangGraph Runtime</text>
-    <text class="m" x="958" y="216">stateful graph, checkpoints every step</text>
+  <g class="node" data-k="researcher">
+    <rect x="780" y="250" width="230" height="110"/>
+    <text class="t" x="798" y="277">Researcher Agent</text>
+    <text class="m" x="798" y="299">ReAct loop · ≤5 iterations</text>
+    <text class="m" x="798" y="317">retrieve_evidence tool</text>
   </g>
   <g class="node gate" data-k="breaker">
-    <rect x="940" y="268" width="380" height="78"/>
-    <text class="t" x="958" y="294">Circuit Breaker</text>
-    <text class="m" x="958" y="314">max ReAct loops · max reflections · cost cap</text>
+    <rect x="780" y="380" width="230" height="80"/>
+    <text class="t" x="798" y="407">Circuit Breaker</text>
+    <text class="m" x="798" y="429">iteration + cost caps</text>
   </g>
-  <g class="node do" data-k="planner">
-    <rect x="940" y="370" width="180" height="100"/>
-    <text class="t" x="958" y="397">Planner Agent</text>
-    <text class="m" x="958" y="419">Qwen3 / Model Gateway</text>
-    <text class="m" x="958" y="437">goal → sub-task roadmap</text>
+  <g class="node planned" data-k="confidence">
+    <rect x="530" y="380" width="230" height="80"/>
+    <text class="k" x="548" y="403">planned · needs spec</text>
+    <text class="t" x="548" y="422">Confidence Scorer</text>
+    <text class="m" x="548" y="444">per-claim citation strength</text>
   </g>
-  <g class="node store" data-k="plancache">
-    <rect x="1140" y="370" width="180" height="100"/>
-    <text class="t" x="1158" y="397">Plan Cache (APC)</text>
-    <text class="m" x="1158" y="419">Postgres + Model Gateway</text>
-    <text class="m" x="1158" y="437">reuse Planner output</text>
+  <g class="node planned" data-k="selfcorrect">
+    <rect x="530" y="490" width="230" height="80"/>
+    <text class="k" x="548" y="513">planned · needs spec</text>
+    <text class="t" x="548" y="532">Self-Correction</text>
+    <text class="m" x="548" y="554">weak claim → re-retrieve</text>
   </g>
-  <g class="node do" data-k="researcher">
-    <rect x="940" y="494" width="380" height="124"/>
-    <text class="t" x="958" y="520">Research Agent</text>
-    <text class="m" x="958" y="540">ReAct loop · Model Gateway</text>
-    <text class="m" x="958" y="558">hybrid + semantic search tools</text>
-    <text class="m" x="958" y="576">tracks citations at retrieval time</text>
-  </g>
-  <g class="node do" data-k="critic">
-    <rect x="940" y="642" width="380" height="124"/>
-    <text class="t" x="958" y="668">Critic Agent</text>
-    <text class="m" x="958" y="688">Reflection pattern · Model Gateway</text>
-    <text class="m" x="958" y="706">checks hallucination + constraints</text>
-    <text class="m" x="958" y="724">sends evidence gaps to Researcher</text>
+  <g class="node planned" data-k="critic">
+    <rect x="780" y="490" width="230" height="80"/>
+    <text class="k" x="798" y="513">planned · needs spec</text>
+    <text class="t" x="798" y="532">Critic</text>
+    <text class="m" x="798" y="554">groundedness vs evidence</text>
   </g>
 
-  <!-- ══ NODES: model routing & tools ══════ -->
-  <g class="node" data-k="modelgateway">
-    <rect x="1380" y="610" width="240" height="100"/>
-    <text class="t" x="1398" y="637">Model Gateway</text>
-    <text class="m" x="1398" y="659">LiteLLM</text>
-    <text class="m" x="1398" y="677">Ollama + OpenAI-compatible</text>
+  <!-- NODES: retrieval -->
+  <g class="node" data-k="hybrid">
+    <rect x="1080" y="180" width="220" height="70"/>
+    <text class="t" x="1098" y="207">Hybrid Search + RRF</text>
+    <text class="m" x="1098" y="227">dense ⊕ keyword · postgres</text>
   </g>
-  <g class="node" data-k="mcptool">
-    <rect x="1380" y="730" width="240" height="100"/>
-    <text class="t" x="1398" y="757">MCP Tool Layer</text>
-    <text class="m" x="1398" y="779">Filesystem · GitHub · Web Search</text>
-    <text class="m" x="1398" y="797">tools for the Research Agent</text>
+  <g class="node store" data-k="pgvector">
+    <rect x="1080" y="270" width="105" height="70"/>
+    <text class="t" x="1089" y="297">pgvector</text>
+    <text class="m" x="1089" y="317">chunks.vector</text>
+    <text class="m" x="1089" y="331">(1024)</text>
   </g>
-
-  <!-- ══ NODES: memory ═════════════════════ -->
-  <g class="node" data-k="workingmem">
-    <rect x="1400" y="170" width="210" height="100"/>
-    <text class="t" x="1418" y="197">Working Memory</text>
-    <text class="m" x="1418" y="219">Redis</text>
-    <text class="m" x="1418" y="237">session trajectory + outputs</text>
+  <g class="node store" data-k="tsvector">
+    <rect x="1195" y="270" width="105" height="70"/>
+    <text class="t" x="1204" y="297">tsvector</text>
+    <text class="m" x="1204" y="317">+ GIN index</text>
+    <text class="m" x="1204" y="331">keyword/BM25</text>
   </g>
-  <g class="node store" data-k="convsummaries">
-    <rect x="1400" y="294" width="210" height="100"/>
-    <text class="t" x="1418" y="321">Conversation Summaries</text>
-    <text class="m" x="1418" y="343">Postgres</text>
-    <text class="m" x="1418" y="361">compressed history</text>
-  </g>
-  <g class="node store" data-k="semanticmem">
-    <rect x="1400" y="418" width="210" height="100"/>
-    <text class="t" x="1418" y="445">Semantic Memory</text>
-    <text class="m" x="1418" y="467">Postgres + Turbovec</text>
-    <text class="m" x="1418" y="485">prefs + long-term project facts</text>
+  <g class="node" data-k="reranker">
+    <rect x="1080" y="362" width="220" height="60"/>
+    <text class="t" x="1098" y="387">Cohere Rerank v3</text>
+    <text class="m" x="1098" y="405">cross-encoder relevance</text>
   </g>
 
-  <!-- ══ NODES: storage ════════════════════ -->
-  <g class="node store" data-k="postgres">
-    <rect x="1680" y="170" width="210" height="100"/>
-    <text class="t" x="1698" y="197">PostgreSQL</text>
-    <text class="m" x="1698" y="219">relational source of truth</text>
-    <text class="m" x="1698" y="237">metadata · plan cache · tsvector</text>
+  <!-- NODES: gateway -->
+  <g class="node" data-k="litellm">
+    <rect x="1370" y="180" width="220" height="70"/>
+    <text class="t" x="1388" y="207">LiteLLM Gateway</text>
+    <text class="m" x="1388" y="227">one uniform interface</text>
   </g>
-  <g class="node store" data-k="turbovec">
-    <rect x="1680" y="294" width="210" height="124"/>
-    <text class="t" x="1698" y="320">Turbovec</text>
-    <text class="m" x="1698" y="340">compressed ANN index</text>
-    <text class="m" x="1698" y="358">TurboQuant 4-bit · 10M vecs ≈4GB</text>
-    <text class="m" x="1698" y="376">ID-allowlist filter in SIMD kernel</text>
+  <g class="node ext" data-k="groq">
+    <rect x="1370" y="270" width="105" height="60"/>
+    <text class="t" x="1388" y="297">Groq</text>
+    <text class="m" x="1388" y="317">primary · llama-3</text>
   </g>
-  <g class="node store" data-k="pdfstorage">
-    <rect x="1680" y="442" width="210" height="100"/>
-    <text class="t" x="1698" y="469">PDF Storage</text>
-    <text class="m" x="1698" y="491">local filesystem</text>
-    <text class="m" x="1698" y="509">source documents</text>
+  <g class="node ext" data-k="openrouter">
+    <rect x="1485" y="270" width="105" height="60"/>
+    <text class="t" x="1503" y="297">OpenRouter</text>
+    <text class="m" x="1503" y="317">fallback models</text>
+  </g>
+  <g class="node ext" data-k="cohere">
+    <rect x="1370" y="362" width="220" height="70"/>
+    <text class="t" x="1388" y="389">Cohere API</text>
+    <text class="m" x="1388" y="409">embed-english-v3.0 · rerank v3</text>
   </g>
 
-  <!-- ══ NODES: ingestion ══════════════════ -->
-  <g class="node" data-k="workers">
-    <rect x="60" y="900" width="190" height="100"/>
-    <text class="t" x="78" y="927">Task Queue</text>
-    <text class="m" x="78" y="949">Celery / Arq workers</text>
-    <text class="m" x="78" y="967">ingestion, OCR, report gen</text>
+  <!-- NODES: stores -->
+  <g class="node store" data-k="neon">
+    <rect x="1660" y="180" width="190" height="80"/>
+    <text class="t" x="1678" y="207">Neon Postgres</text>
+    <text class="m" x="1678" y="229">pgvector + tsvector + GIN</text>
+    <text class="m" x="1678" y="247">documents · chunks · citations</text>
   </g>
-  <g class="node" data-k="docling">
-    <rect x="290" y="900" width="170" height="100"/>
-    <text class="t" x="308" y="927">Docling</text>
-    <text class="m" x="308" y="949">layout-aware OCR</text>
-    <text class="m" x="308" y="967">headings, tables, lists</text>
+  <g class="node store" data-k="redis">
+    <rect x="1660" y="280" width="190" height="80"/>
+    <text class="t" x="1678" y="307">Upstash Redis</text>
+    <text class="m" x="1678" y="329">arq queue · sessions</text>
+    <text class="m" x="1678" y="347">TLS · rediss://</text>
   </g>
-  <g class="node" data-k="whisper">
-    <rect x="480" y="900" width="170" height="100"/>
-    <text class="t" x="498" y="927">faster-whisper</text>
-    <text class="m" x="498" y="949">audio transcription</text>
-    <text class="m" x="498" y="967">large-v3 · ~4x realtime</text>
+  <g class="node store" data-k="r2">
+    <rect x="1660" y="380" width="190" height="70"/>
+    <text class="t" x="1678" y="407">Cloudflare R2</text>
+    <text class="m" x="1678" y="429">raw file objects</text>
   </g>
-  <g class="node" data-k="coderepo">
-    <rect x="670" y="900" width="190" height="100"/>
-    <text class="t" x="688" y="927">tree-sitter</text>
-    <text class="m" x="688" y="949">+ gitingest ingestion</text>
-    <text class="m" x="688" y="967">AST-aware code chunks</text>
+
+  <!-- NODES: ingestion -->
+  <g class="node do" data-k="worker">
+    <rect x="60" y="850" width="170" height="90"/>
+    <text class="t" x="78" y="877">arq Worker</text>
+    <text class="m" x="78" y="899">same container as app</text>
+    <text class="m" x="78" y="917">runs ingest jobs</text>
   </g>
   <g class="node" data-k="chunker">
-    <rect x="900" y="900" width="190" height="100"/>
-    <text class="t" x="918" y="927">Chonkie</text>
-    <text class="m" x="918" y="949">semantic chunking</text>
-    <text class="m" x="918" y="967">splits on meaning shifts</text>
-  </g>
-  <g class="node" data-k="metadataextract">
-    <rect x="1120" y="900" width="210" height="100"/>
-    <text class="t" x="1138" y="927">Metadata Extractor</text>
-    <text class="m" x="1138" y="949">author / date / category</text>
-    <text class="m" x="1138" y="967">enables pre-filter + incremental</text>
+    <rect x="270" y="850" width="170" height="90"/>
+    <text class="t" x="288" y="877">Chunker</text>
+    <text class="m" x="288" y="899">split + tsvector</text>
+    <text class="m" x="288" y="917">metadata per chunk</text>
   </g>
   <g class="node" data-k="embedder">
-    <rect x="1360" y="900" width="190" height="100"/>
-    <text class="t" x="1378" y="927">BGE-M3</text>
-    <text class="m" x="1378" y="949">local embeddings</text>
-    <text class="m" x="1378" y="967">multilingual</text>
+    <rect x="480" y="850" width="170" height="90"/>
+    <text class="t" x="498" y="877">Cohere Embedder</text>
+    <text class="m" x="498" y="899">embed-english-v3.0</text>
+    <text class="m" x="498" y="917">hash fallback (dev)</text>
+  </g>
+  <g class="node planned" data-k="backfill">
+    <rect x="670" y="850" width="240" height="90"/>
+    <text class="k" x="688" y="876">utility script</text>
+    <text class="t" x="688" y="895">scripts/backfill_embeddings.py</text>
+    <text class="m" x="688" y="917">guarded: only real cohere key</text>
+    <text class="m" x="688" y="935">NULL → 206 chunks embedded</text>
   </g>
 
-  <!-- ══ NODES: output + observability ═════ -->
-  <g class="node gate" data-k="outputguard">
-    <rect x="60" y="1140" width="420" height="100"/>
-    <text class="t" x="78" y="1167">Output Guardrail</text>
-    <text class="m" x="78" y="1189">Guardrails AI</text>
-    <text class="m" x="78" y="1207">groundedness + schema check, final gate</text>
+  <!-- NODES: observability -->
+  <g class="node ext" data-k="logfire">
+    <rect x="1230" y="850" width="200" height="90"/>
+    <text class="t" x="1248" y="877">Logfire</text>
+    <text class="m" x="1248" y="899">live traces + spans</text>
+    <text class="m" x="1248" y="917">research_agent.run</text>
   </g>
-  <g class="node" data-k="langfuse">
-    <rect x="510" y="1140" width="420" height="100"/>
-    <text class="t" x="528" y="1167">Langfuse</text>
-    <text class="m" x="528" y="1189">trajectory tracing</text>
-    <text class="m" x="528" y="1207">every thought/action/observation logged</text>
+  <g class="node planned" data-k="evals">
+    <rect x="1460" y="850" width="200" height="90"/>
+    <text class="k" x="1478" y="876">planned</text>
+    <text class="t" x="1478" y="895">Eval Suite</text>
+    <text class="m" x="1478" y="917">nightly RAGAS replay</text>
+    <text class="m" x="1478" y="935">golden question set</text>
   </g>
-  <g class="node" data-k="ragas">
-    <rect x="960" y="1140" width="460" height="100"/>
-    <text class="t" x="978" y="1167">RAGAS + DeepEval</text>
-    <text class="m" x="978" y="1189">nightly golden-dataset eval</text>
-    <text class="m" x="978" y="1207">faithfulness, relevancy, recall + test cases</text>
-  </g>
-  <g class="node" data-k="dashboards">
-    <rect x="1450" y="1140" width="420" height="100"/>
-    <text class="t" x="1468" y="1167">Prometheus + Grafana</text>
-    <text class="m" x="1468" y="1189">metrics dashboards</text>
-    <text class="m" x="1468" y="1207">cache hit-rate, latency, cost/run</text>
+  <g class="node planned" data-k="cost">
+    <rect x="1680" y="850" width="170" height="90"/>
+    <text class="k" x="1698" y="876">planned</text>
+    <text class="t" x="1698" y="895">Cost Metering</text>
+    <text class="m" x="1698" y="917">tokens · model</text>
+    <text class="m" x="1698" y="935">per run</text>
   </g>
 
-  <!-- ══ NODES: security & access control ══ -->
-  <g class="node gate" data-k="rbac">
-    <rect x="60" y="1360" width="200" height="100"/>
-    <text class="t" x="78" y="1387">RBAC</text>
-    <text class="m" x="78" y="1409">role-based access control</text>
-    <text class="m" x="78" y="1427">per-user, per-workspace scopes</text>
+  <!-- NODES: deployment -->
+  <g class="node" data-k="render">
+    <rect x="150" y="1080" width="330" height="110"/>
+    <text class="t" x="168" y="1107">Render Web Service</text>
+    <text class="m" x="168" y="1129">one container · free tier</text>
+    <text class="m" x="168" y="1147">CMD: alembic upgrade head</text>
+    <text class="k" x="168" y="1167">→ arq worker + uvicorn</text>
   </g>
-  <g class="node gate" data-k="scopedretrieval">
-    <rect x="280" y="1360" width="200" height="100"/>
-    <text class="t" x="298" y="1387">Scoped Retrieval</text>
-    <text class="m" x="298" y="1409">permission-aware filtering</text>
-    <text class="m" x="298" y="1427">applied inside hybrid search</text>
+  <g class="node gate" data-k="keepwarm">
+    <rect x="520" y="1080" width="260" height="80"/>
+    <text class="t" x="538" y="1107">Keep-warm Cron</text>
+    <text class="m" x="538" y="1129">GET /health every 10 min</text>
+    <text class="m" x="538" y="1147">stays out of free-tier sleep</text>
   </g>
-  <g class="node gate" data-k="secretmgmt">
-    <rect x="500" y="1360" width="200" height="100"/>
-    <text class="t" x="518" y="1387">Secret Management</text>
-    <text class="m" x="518" y="1409">Vault / env-based secrets</text>
-    <text class="m" x="518" y="1427">keys never touch agent prompts</text>
+  <g class="node store" data-k="github">
+    <rect x="1100" y="1080" width="200" height="80"/>
+    <text class="t" x="1118" y="1107">GitHub repo</text>
+    <text class="m" x="1118" y="1129">push → auto-deploy</text>
   </g>
-  <g class="node gate" data-k="toolguardrails">
-    <rect x="720" y="1360" width="200" height="100"/>
-    <text class="t" x="738" y="1387">Tool Guardrails</text>
-    <text class="m" x="738" y="1409">schema + scope validation</text>
-    <text class="m" x="738" y="1427">wraps every MCP tool call</text>
-  </g>
-
-  <!-- ══ NODES: deployment & runtime ═══════ -->
   <g class="node store" data-k="vercel">
-    <rect x="1000" y="1360" width="170" height="100"/>
-    <text class="t" x="1018" y="1387">Vercel</text>
-    <text class="m" x="1018" y="1409">Next.js frontend</text>
-    <text class="m" x="1018" y="1427">edge-deployed</text>
-  </g>
-  <g class="node store" data-k="render">
-    <rect x="1186" y="1360" width="170" height="100"/>
-    <text class="t" x="1204" y="1387">Render</text>
-    <text class="m" x="1204" y="1409">FastAPI + workers</text>
-    <text class="m" x="1204" y="1427">Docker-based</text>
-  </g>
-  <g class="node store" data-k="upstash">
-    <rect x="1372" y="1360" width="170" height="100"/>
-    <text class="t" x="1390" y="1387">Upstash</text>
-    <text class="m" x="1390" y="1409">managed Redis</text>
-    <text class="m" x="1390" y="1427">serverless tier</text>
-  </g>
-  <g class="node store" data-k="neon">
-    <rect x="1558" y="1360" width="170" height="100"/>
-    <text class="t" x="1576" y="1387">Neon</text>
-    <text class="m" x="1576" y="1409">managed Postgres</text>
-    <text class="m" x="1576" y="1427">serverless, branching</text>
-  </g>
-  <g class="node store" data-k="docker">
-    <rect x="1744" y="1360" width="156" height="100"/>
-    <text class="t" x="1762" y="1387">Docker</text>
-    <text class="m" x="1762" y="1409">local dev / workers</text>
-    <text class="m" x="1762" y="1427">ingestion fleet</text>
+    <rect x="860" y="1080" width="200" height="80"/>
+    <text class="t" x="878" y="1107">Vercel</text>
+    <text class="m" x="878" y="1129">Next.js frontend (port 3000)</text>
   </g>
 </svg>
 
-  <div class="src">PRD: Agentic Research Workspace · v1 (frozen)</div>
-
-  <div class="card" id="flowcap">
-    <div class="fname" id="f-name"></div>
-    <ol id="f-steps"></ol>
-  </div>
-
-  <div class="card" id="detail">
-    <h3 id="d-title">Click anything</h3>
-    <div class="meta" id="d-meta">node detail</div>
-    <p id="d-body">Every box is clickable. The chips up top light up the real request paths through the system — a cache hit, a full multi-agent run, the Critic's reflection loop, plan reuse, ingestion, and the nightly eval job.</p>
-  </div>
+<div class="card" id="detail">
+  <h3 id="d-title">Click a node</h3>
+  <div class="meta" id="d-meta">node detail</div>
+  <p id="d-body">Each box is clickable. Chips up top trace real request paths through the deployed system — a live research run, the planned agentic additions (gold), ingestion, embedding backfill, and Render keep-warm.</p>
 </div>
+
+<div class="card" id="flowcap">
+  <div class="fname" id="f-name"></div>
+  <ol id="f-steps"></ol>
+</div>
+</div>
+
+<div class="src">PRD v1 · updated for pgvector/tsvector in Neon, Cohere embed+rerank, LiteLLM, R2, single Render container + keep-warm cron</div>
+
+<div class="card" id="flowcap-wrapper" style="display:none"></div>
+
 <script>
 const DETAIL = {
-  "client-chat": { t:"Chat / Voice UI", m:"Next.js · WebSocket", b:"Streams agent traces live — Planner → Researcher → Critic — so the user watches the reasoning unfold instead of staring at a spinner." },
-  "client-api": { t:"API / CLI Client", m:"client · Bearer token", b:"For batch report generation and integrations. Same FastAPI surface as the chat UI — the API <i>is</i> the product; the chat UI is just one client of it." },
-  "fastapi": { t:"FastAPI Gateway", m:"REST + WebSocket · ASGI", b:"Single entrypoint for both transports. Chosen over Flask/Django for native async and first-class WebSocket support — both required to stream agent traces live." },
-  "input-guard": { t:"Input Guardrail", m:"LLM Guard", b:"Scans every incoming prompt for injection attempts and PII before it reaches an agent. Fail-closed: a flagged request never touches the LLM." },
-  "cache-check": { t:"Semantic Cache Check", m:"Redis 8 Vector Sets + GPTCache", b:"Embeds the query, checks cosine similarity against past answers (≥0.85 → return cached). Redis 8's native vector type means no separate vector DB just for the cache layer." },
-  "rewrite": { t:"Query Rewrite · HyDE", m:"Qwen3 4B (Ollama)", b:"Generates a hypothetical answer first, then embeds <i>that</i> — hypothetical answers sit closer in embedding space to real answer chunks than the bare question does. A small local model is enough here, and it never leaves the Model Gateway." },
-  "hybrid": { t:"Hybrid Search + RRF", m:"Turbovec (dense) ⊕ Postgres FTS (BM25)", b:"Postgres pre-filters by metadata into an ID allowlist; that allowlist feeds straight into Turbovec's SIMD kernel — filtering happens inside the scoring loop, not after. Postgres tsvector covers BM25 keyword matching. Merged with Reciprocal Rank Fusion." },
-  "rerank": { t:"Cross-Encoder Rerank", m:"BGE-Reranker-v2-m3", b:"Self-hosted cross-encoder — re-scores the fused candidate pool with full cross-attention instead of dot-product similarity. Open-weight and local, consistent with the rest of the V1 stack running through the Model Gateway." },
-  "orchestrator": { t:"LangGraph Runtime", m:"stateful graph + checkpointing", b:"Models Planner → Researcher → Critic as a cyclic graph with built-in state persistence — the checkpoint-recovery pattern this system needs, without hand-rolling a state machine." },
-  "breaker": { t:"Circuit Breaker", m:"bounded execution", b:"Hard caps on ReAct loop count, reflection passes, and total token spend per run. The single most important production guardrail here — without it, a stuck agent silently burns budget." },
-  "planner": { t:"Planner Agent", m:"Qwen3 / Model Gateway", b:"Decomposes the goal into a sub-task roadmap and flags data dependencies before any retrieval happens, so the Research Agent isn't improvising step-by-step on a complex multi-hop question. Calls a Qwen3 model through the Model Gateway rather than a fixed provider." },
-  "plancache": { t:"Agentic Plan Cache", m:"Postgres templates + Model Gateway adapt", b:"Stores the Planner's structured output as a reusable template. A similar future task retrieves it and a cheap call through the Model Gateway adapts the entities — skipping a full planning pass entirely." },
-  "researcher": { t:"Research Agent", m:"ReAct loop · Model Gateway", b:"Reason → Act → Observe, repeated under the Circuit Breaker's cap. Tools come from the MCP Tool Layer (filesystem, GitHub, web search) plus hybrid/semantic search. Citations are tracked at the point of retrieval, not reconstructed afterward." },
-  "critic": { t:"Critic Agent", m:"Reflection pattern · Model Gateway", b:"Reviews the draft against the actual retrieved evidence, not just internal consistency. A claim that isn't traceable to a chunk gets flagged and sent back — this is what keeps 'cited' from meaning 'plausible-looking citation'." },
-  "workingmem": { t:"Working Memory", m:"Redis", b:"Session-scoped: current trajectory, intermediate tool outputs, in-flight plan. Cleared at session end so it never becomes a second source of truth." },
-  "modelgateway": { t:"Model Gateway", m:"LiteLLM", b:"Every LLM call from Planner, Researcher, and Critic routes through here instead of hitting a provider directly. Ollama serves local models by default; the same OpenAI-compatible interface can fail over to a hosted provider (OpenAI, Gemini) without touching agent code." },
-  "mcptool": { t:"MCP Tool Layer", m:"Filesystem · GitHub · Web Search", b:"The Research Agent's tool registry, exposed over MCP instead of hard-coded function calls — adding a new tool means registering a new MCP server, not redeploying the agent. Every call passes through Tool Guardrails first." },
-  "convsummaries": { t:"Conversation Summaries", m:"Postgres", b:"Rolling, compressed history of long-running sessions — instead of replaying every past message into context, the Planner reads a summary. Keeps prompts bounded as a research thread grows over days." },
-  "semanticmem": { t:"Semantic Memory", m:"Postgres + Turbovec", b:"Persistent user preferences and project facts across sessions — stored relationally in Postgres, retrieved semantically through the same Turbovec index used for document search. No separate memory framework to operate." },
-  "postgres": { t:"PostgreSQL", m:"relational source of truth", b:"Document + chunk metadata, the plan-cache table, the semantic-memory + conversation-summary tables, and the tsvector index for BM25 — one durable system instead of four. Also runs the metadata pre-filter that feeds Turbovec's allowlist." },
-  "turbovec": { t:"Turbovec", m:"compressed ANN index · Rust", b:"Built on Google Research's TurboQuant algorithm: 10M vectors at ~4GB instead of 31GB with 4-bit quantization, SIMD-accelerated, filters <i>inside</i> the scoring kernel via ID allowlists. It's a library, not a managed DB — no dashboard, no native metadata filtering, which is exactly why Postgres sits in front of it." },
-  "pdfstorage": { t:"PDF Storage", m:"local filesystem", b:"The raw uploaded files — PDFs, repo archives, audio — written to disk at upload time and kept as the original source of truth. Docling, faster-whisper, and tree-sitter all read from here; if a chunking or embedding strategy changes later, nothing needs to be re-uploaded." },
-  "workers": { t:"Task Queue", m:"Celery / Arq workers", b:"Arq (asyncio-native, Redis-backed) is the lighter pick over Celery for a Python-async stack — fewer moving parts, no separate broker config, same job semantics." },
-  "docling": { t:"Docling", m:"layout-aware parsing + OCR", b:"IBM's open-source parser preserves heading hierarchy, tables, and lists as structured objects instead of flattened text — exactly what downstream layout-aware chunking depends on. Picked over Unstructured.io for cleaner table extraction and no API cost." },
-  "whisper": { t:"faster-whisper", m:"audio transcription", b:"CTranslate2-optimized Whisper large-v3 — same accuracy as the OpenAI Whisper API, ~4x faster on CPU, no per-minute cost, runs in the same worker fleet as everything else." },
-  "coderepo": { t:"tree-sitter + gitingest", m:"GitHub repo ingestion", b:"tree-sitter parses each file into an AST so chunks break on function/class boundaries instead of arbitrary line counts — a chunk cut mid-function is worse than no chunk at all." },
-  "chunker": { t:"Chonkie", m:"query-adaptive semantic chunking", b:"Lightweight, fast semantic chunker — splits on embedding-similarity drops rather than fixed token counts, so boundaries track topic shifts instead of cutting paragraphs in half." },
-  "metadataextract": { t:"Metadata Extractor", m:"author / date / category tagging", b:"Runs after chunking so metadata inherits from document-level extraction down to each chunk. Enables Postgres pre-filtering before any vector search happens." },
-  "embedder": { t:"BGE-M3", m:"local embeddings", b:"Open-weight, multilingual, and self-hosted alongside Docling and Chonkie in the same worker fleet — no per-token API cost and no outbound call for every chunk. Multilingual support matters as soon as ingested PDFs or repos aren't all in English." },
-  "outputguard": { t:"Output Guardrail", m:"Guardrails AI", b:"Validates the final response against a schema and runs a groundedness check before anything reaches the user — the last of four validation points (input, tool input, tool output, final output)." },
-  "langfuse": { t:"Langfuse", m:"trajectory tracing", b:"Every Thought/Action/Observation, every tool call's input and output, every token count — logged per run. When an agent does something strange, this is how you find out why instead of guessing." },
-  "ragas": { t:"RAGAS + DeepEval", m:"nightly golden-dataset eval", b:"RAGAS scores the retrieval-specific metrics — faithfulness, answer relevancy, context precision and recall. DeepEval runs alongside it for broader test-case-style assertions: hallucination, bias, and custom checks on whether the Critic actually caught what it should." },
-  "dashboards": { t:"Prometheus + Grafana", m:"metrics dashboards", b:"Cache hit-rate (semantic + plan), retrieval latency, cost-per-run in tokens, task completion rate — turns 'feels slow' or 'feels expensive' into a number you can act on." },
-  "rbac": { t:"RBAC", m:"role-based access control", b:"Every request carries an identity and a workspace/role scope, resolved once at the gateway. Downstream, that scope is what Scoped Retrieval and Tool Guardrails actually check — RBAC itself just establishes who's asking." },
-  "scopedretrieval": { t:"Scoped Retrieval", m:"permission-aware filtering", b:"The same metadata pre-filter that produces Turbovec's ID allowlist also enforces permissions — a user only ever gets an allowlist built from chunks they're scoped to see. There's no separate 'redact after retrieval' step to forget." },
-  "secretmgmt": { t:"Secret Management", m:"Vault / env-based secrets", b:"API keys for the Model Gateway's backends (Ollama, OpenAI, Gemini) and any MCP tool credentials live here, not in agent prompts or tool-call payloads. The agent calls a tool; the tool resolves its own credentials." },
-  "toolguardrails": { t:"Tool Guardrails", m:"schema + scope validation", b:"Every MCP Tool Layer call is validated against a schema and the caller's permission scope before it executes — the same input/output guardrail principle applied specifically to tool calls, not just chat messages." },
-  "vercel": { t:"Vercel", m:"Next.js frontend", b:"The chat/voice UI deploys here — edge-cached static assets, serverless functions for anything that isn't the WebSocket connection itself." },
-  "render": { t:"Render", m:"FastAPI + workers", b:"Hosts the FastAPI gateway and the Celery/Arq worker fleet as Docker containers — straightforward background-job support without managing Kubernetes for a V1." },
-  "upstash": { t:"Upstash", m:"managed Redis", b:"Serverless, pay-per-request Redis for the semantic cache and working memory — no Redis instance to size or patch for a project at this stage." },
-  "neon": { t:"Neon", m:"managed Postgres", b:"Serverless Postgres with branching — a throwaway branch per pull request for testing migrations against production-shaped data, without a second always-on database." },
-  "docker": { t:"Docker", m:"local dev / workers", b:"Docling, faster-whisper, and the embedding model are heavy enough that local dev and the worker fleet both run them the same way: containerized, not 'works on my machine'." },
+  "client-chat": { t:"Next.js Chat UI", m:"deployed on Vercel · WebSocket", b:"Streams agent progress live over WebSocket, showing only the vocabulary from <code>docs/ui/ux.md</code> — never raw chain-of-thought or prompts." },
+  "client-api": { t:"REST / CLI Client", m:"Bearer token", b:"Direct API entry for batch uploads and programmatic queries. Same FastAPI surface as the chat UI." },
+  "fastapi": { t:"FastAPI Gateway", m:"REST + WebSocket", b:"Single ASGI app serving REST and WebSocket channels. Auth, CORS, and routers live here. One entrypoint for all clients; secrets loaded once at startup." },
+  "langgraph": { t:"LangGraph Runtime", m:"state graph", b:"The ReAct researcher loop lives here as a stateful graph — thought/action/observation with checkpoint recovery. Entry point for every research run." },
+  "decomposer": { t:"Query Decomposer", m:"planned · needs spec", b:"Will split complex questions into focused sub-queries, fan them out through retrieval in parallel, then synthesize. Needs a spec under <code>docs/specs/</code> before implementation." },
+  "researcher": { t:"Researcher Agent", m:"ReAct loop · ≤5 iterations", b:"Main agent. Calls the <code>retrieve_evidence</code> tool up to 5 times, gathering cited chunks, then synthesizes a final answer. Every claim must trace back to a retrieved chunk." },
+  "breaker": { t:"Circuit Breaker", m:"bounded execution guard", b:"Hard caps on iterations and per-run token cost. Prevents runaway loops and silent budget burn on the free tier." },
+  "confidence": { t:"Confidence Scorer", m:"planned · needs spec", b:"Will score each claim against its supporting citation strength, flagging weakly-sourced assertions before they reach the user. Needs a spec under <code>docs/specs/</code>." },
+  "selfcorrect": { t:"Self-Correction", m:"planned · needs spec", b:"When confidence is low on any claim, will trigger another targeted retrieval pass — a second chance to find supporting evidence before answering. Bounded by the Circuit Breaker." },
+  "critic": { t:"Critic", m:"planned · needs spec", b:"Will check draft answers against actual retrieved evidence and flag ungrounded claims back to the researcher. Needs justification against <code>PRD.md</code> Non-Goals before it ships." },
+  "hybrid": { t:"Hybrid Search + RRF", m:"rrf merge", b:"Dense vectors and keyword matches fetched from the same Postgres table, merged with Reciprocal Rank Fusion. No separate vector DB to host or sync." },
+  "pgvector": { t:"pgvector", m:"chunks.embedding · vector(1024)", b:"Stores Cohere embeddings directly in Neon Postgres. Cosine distance search happens in SQL. Sync problem eliminated — chunks and vectors live together." },
+  "tsvector": { t:"tsvector + GIN", m:"generated column + GIN index", b:"Postgres full-text search using a generated <code>tsv</code> column over <code>chunk.text</code>, indexed with GIN for approximate BM25 ranking. Instant keyword matching without extra infra." },
+  "reranker": { t:"Cohere Rerank v3", m:"rerank-english-v3.0", b:"Cross-encoder re-scores the hybrid candidates for true semantic relevance before they reach the researcher." },
+  "litellm": { t:"LiteLLM Model Gateway", m:"one uniform interface", b:"Every LLM call from every agent routes through here. Swapping providers or models means changing env vars, not code. Fallback chain: Groq → OpenRouter." },
+  "groq": { t:"Groq", m:"llama-3 family", b:"Primary LLM for agent reasoning. Fast, generous free tier, good for the research loop." },
+  "openrouter": { t:"OpenRouter", m:"fallback models", b:"Fallback for when Groq is saturated or a specific experiment needs a different model. Configured via env var, not code." },
+  "cohere": { t:"Cohere API", m:"embed-english-v3.0 · rerank-english-v3.0", b:"Cloud embeddings and reranking endpoint. 1024-dim vectors, high-quality semantic retrieval without running GPU locally." },
+  "neon": { t:"Neon Postgres", m:"serverless postgres", b:"Documents table, chunks with vectors, tsvector column for BM25, GIN indexes, and citation links. Full system of record in one managed DB." },
+  "redis": { t:"Upstash Redis", m:"TLS · rediss://", b:"arq job queue and session state. Serverless, no idle cost. Connects over TLS rediss:// instead of redis://." },
+  "r2": { t:"Cloudflare R2", m:"s3-compatible objects", b:"Raw uploaded files stored durably. S3-compatible SDK, zero egress fees." },
+  "worker": { t:"arq Worker", m:"same container as app", b:"Async background worker handling uploads, chunking, embedding, and vector writes — kept off the request path so HTTP responses stay fast." },
+  "chunker": { t:"Chunker", m:"split + tsvector", b:"Splits documents into retrievable chunks, attaches metadata, and prepares text for the tsvector column written at insert time." },
+  "embedder": { t:"Cohere Embedder", m:"embed-english-v3.0", b:"Batch-embeds chunks at ingest time. Has a deterministic hash fallback for local dev when Cohere is unavailable." },
+  "backfill": { t:"Backfill Script", m:"guarded utility", b:"<code>scripts/backfill_embeddings.py</code> embeds any chunk with a NULL vector. Guarded to refuse hash-fallback — will only write real Cohere vectors, protecting corpus quality." },
+  "logfire": { t:"Logfire", m:"live traces", b:"Observability live in production. Each research run is a trace; every retrieval batch and LLM call is a span with latency and token counts." },
+  "evals": { t:"Eval Suite", m:"planned", b:"Will replay a golden question set nightly against the live pipeline to catch embedding/model regressions before users do." },
+  "cost": { t:"Cost Metering", m:"planned", b:"Will track tokens × model price per research run and per agent — makes spend visible even on free/trial tiers." },
+  "render": { t:"Render Web Service", m:"one container · free tier", b:"Single Docker container on Render's free tier runs the full backend: <code>alembic upgrade head</code>, arq workers, and <code>uvicorn</code>. No internal network config needed." },
+  "keepwarm": { t:"Keep-warm Cron", m:"GET /health · every 10 min", b:"A Render cron job that pings <code>/health</code> every 10 minutes so the free container never sleeps into a cold-start during a live demo." },
+  "github": { t:"GitHub repo", m:"push → auto-deploy", b:"Render watches the main branch. Every merge triggers a build and deploy using the Dockerfile in <code>apps/api/</code>." },
+  "vercel": { t:"Vercel", m:"Next.js frontend", b:"Hosts the chat interface separately from the backend. Calls REST and opens WebSocket to the Render API." },
 };
 
 const FLOWS = {
-  cachehit: {
-    name: "Cache hit — zero agent calls",
-    edges: ["e-chat-fastapi","e-fastapi-guard","e-guard-cache","e-cache-chathit"],
-    nodes: ["client-chat","fastapi","input-guard","cache-check"],
-    steps: ["Request hits FastAPI, passes the input guardrail","Query embedding compared against the semantic cache — cosine ≥ 0.85","Cached answer returns directly. No agents, no LLM spend"]
-  },
   fullrun: {
-    name: "Full research run — cache miss",
-    edges: ["e-chat-fastapi","e-fastapi-guard","e-guard-cache","e-cache-breaker","e-breaker-planner","e-planner-researcher","e-researcher-rewrite","e-rewrite-hybrid","e-hybrid-turbovec","e-hybrid-postgres","e-hybrid-rerank","e-rerank-researcher","e-researcher-modelgateway","e-researcher-mcptool","e-researcher-critic","e-critic-outputguard","e-outputguard-chat"],
-    nodes: ["client-chat","fastapi","input-guard","cache-check","orchestrator","breaker","planner","researcher","rewrite","hybrid","turbovec","postgres","rerank","modelgateway","mcptool","critic","outputguard"],
-    steps: ["Cache miss → Planner decomposes the goal into a sub-task roadmap","Research Agent runs ReAct: HyDE-expand → hybrid search (Turbovec ⊕ Postgres) → rerank, calling tools via MCP and models via the Model Gateway","Critic checks the draft for hallucination and groundedness","Output guardrail validates, then the response streams back"]
+    name: "Research run — live agent loop",
+    edges: ["e-chat-fastapi","e-fastapi-langgraph","e-langgraph-researcher","e-researcher-hybrid","e-hybrid-pgvector","e-hybrid-tsvector","e-pgv-rerank","e-tsv-rerank","e-rerank-researcher","e-researcher-modelgateway","e-litellm-groq","e-researcher-breaker","e-citations-neon","e-researcher-logfire"],
+    nodes: ["client-chat","fastapi","langgraph","researcher","hybrid","pgvector","tsvector","reranker","litellm","groq","breaker","neon","logfire"],
+    steps: ["User asks a question in the chat UI","FastAPI hands to LangGraph researcher","Researcher calls retrieve_evidence (hybrid pgvector ⊕ tsvector in Neon)","Cohere reranks candidates","Results returned to researcher","Researcher synthesizes via LiteLLM → Groq","Citations persisted back to Neon","Answer + citations stream to UI; Logfire records the trace"]
   },
-  reflection: {
-    name: "Reflection loop — Critic sends it back",
-    edges: ["e-researcher-critic","e-critic-researcher","e-researcher-rewrite","e-rewrite-hybrid","e-hybrid-rerank","e-rerank-researcher"],
-    nodes: ["researcher","critic","rewrite","hybrid","rerank","breaker"],
-    steps: ["Critic finds an evidence gap or an unsupported claim in the draft","Sends the Researcher back for another retrieval pass — not just a rewrite","Bounded by the Circuit Breaker, so this can't loop forever"]
+  selfcorrect: {
+    name: "Self-correction loop — planned",
+    edges: ["e-researcher-breaker","e-breaker-confidence","e-confidence-selfcorrect","e-selfcorrect-researcher","e-breaker-critic","e-critic-researcher"],
+    nodes: ["researcher","breaker","confidence","selfcorrect","critic"],
+    steps: ["Researcher produces a draft answer","Confidence Scorer rates citation strength per claim","Weak claims trigger targeted re-retrieval","Critic checks groundedness against evidence; loops back to researcher if gaps found","All bounded by Circuit Breaker"]
   },
-  planreuse: {
-    name: "Plan reuse — skip the Planner",
-    edges: ["e-cache-breaker","e-plancache-researcher"],
-    nodes: ["cache-check","breaker","plancache","researcher"],
-    steps: ["A structurally similar task is detected","Cached plan template retrieved, adapted by a cheap call through the Model Gateway","Research Agent starts directly from the adapted plan — the full Planner pass is skipped"]
+  decompose: {
+    name: "Query decomposition — planned",
+    edges: ["e-fastapi-langgraph","e-langgraph-decomposer","e-decomposer-researcher","e-researcher-hybrid","e-hybrid-pgvector","e-hybrid-tsvector","e-pgv-rerank","e-tsv-rerank","e-rerank-researcher"],
+    nodes: ["fastapi","langgraph","decomposer","researcher","hybrid","pgvector","tsvector","reranker"],
+    steps: ["Complex question arrives at FastAPI","Decomposer breaks it into focused sub-questions","Each sub-question fans out through hybrid retrieval","Results merged and reranked","Researcher synthesizes a single answer from all retrieved context"]
   },
   ingestion: {
     name: "Ingestion — upload to searchable",
-    edges: ["e-api-workers","e-workers-pdfstorage","e-workers-docling","e-workers-whisper","e-workers-coderepo","e-docling-chunker","e-whisper-chunker","e-coderepo-chunker","e-chunker-metadata","e-metadata-embedder","e-embedder-turbovec","e-embedder-postgres"],
-    nodes: ["client-api","workers","pdfstorage","docling","whisper","coderepo","chunker","metadataextract","embedder","turbovec","postgres"],
-    steps: ["Upload (PDF, repo, or audio) queues an async Celery/Arq job and writes the raw file to PDF Storage","Layout-aware OCR, transcription, or AST-aware code chunking runs per source type","Chonkie applies query-adaptive semantic chunking, then BGE-M3 embeds locally","Vectors land in Turbovec; metadata + chunk refs land in Postgres for incremental updates"]
+    edges: ["e-api-fastapi","e-fastapi-worker","e-worker-chunker","e-chunker-embedder","e-ingest-cohere","e-embedder-neon","e-worker-r2"],
+    nodes: ["client-api","fastapi","worker","chunker","embedder","cohere","neon","r2"],
+    steps: ["PDF/URL upload hits POST /documents","FastAPI enqueues an arq job and returns immediately","arq Worker picks up the job in the same container","Chunker splits and builds tsvector text","Cohere embedder batches vectors","Chunks + vectors + citations written to Neon","Raw file archived to R2"]
   },
-  nightlyeval: {
-    name: "Nightly eval — RAGAS + DeepEval",
-    edges: ["e-ragas-researcher","e-ragas-critic","e-researcher-langfuse","e-critic-langfuse","e-langfuse-dashboards","e-ragas-dashboards"],
-    nodes: ["ragas","researcher","critic","langfuse","dashboards"],
-    steps: ["Golden dataset of queries replayed nightly against the live pipeline","RAGAS scores faithfulness, answer relevancy, context precision & recall","DeepEval test cases check whether the Critic is actually catching ungrounded claims","Results land in Grafana next to cache hit-rate and cost-per-run"]
+  backfill: {
+    name: "Backfill — populate missing vectors",
+    edges: ["e-backfill-cohere","e-backfill-neon"],
+    nodes: ["backfill","cohere","neon"],
+    steps: ["scripts/backfill_embeddings.py finds chunks with NULL embedding","Refuses to run without a real COHERE_API_KEY (no accidental hash-fallback)","Batches of 64 sent to Cohere embed-english-v3.0","Results written to chunks.embedding in the same Neon DB"]
+  },
+  keepwarm: {
+    name: "Keep-warm — avoid cold start",
+    edges: ["e-keepwarm-render","e-vercel-chat","e-github-render"],
+    nodes: ["keepwarm","render","vercel","github"],
+    steps: ["Render cron triggers every 10 minutes","Cron job calls GET /health on the API","Container stays warm — no 50s cold start during demos","GitHub pushes auto-deploy new versions"]
   }
 };
 
