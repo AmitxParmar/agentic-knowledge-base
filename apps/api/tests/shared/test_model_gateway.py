@@ -1,29 +1,38 @@
 """
-Smoke test: model gateway provider chain resolves correctly.
-Does NOT make real API calls — just checks config + client construction.
+Smoke test: model gateway LiteLLM wiring.
+Does NOT make real API calls — just checks model-string resolution,
+which is the unit of work that determines provider routing.
 """
 
 import pytest
 
 from app.settings import settings
-from src.shared.model_gateway import _provider_chain
+from src.shared.model_gateway import _resolve_models
 
 
-def test_groq_primary_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_resolution_groq_primary(monkeypatch: pytest.MonkeyPatch) -> None:
+    # When the caller supplies no explicit model, Settings drives primary+fallback.
     monkeypatch.setattr(settings, "MODEL_GATEWAY_PROVIDER", "groq")
-    chain = _provider_chain()
-    names = [p[0] for p in chain]
-    assert names[0] == "groq", "Groq must be first when provider=groq"
-    assert names[1] == "openrouter", "OpenRouter must be fallback"
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_OPENROUTER_MODEL", "mistralai/mistral-7b-instruct")
+
+    primary, fallback = _resolve_models(None)
+    assert primary == "groq/llama-3.3-70b-versatile", "primary must be prefixed by active provider"
+    assert fallback == "openrouter/mistralai/mistral-7b-instruct", "fallback must be OpenRouter"
 
 
-def test_openrouter_primary_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_resolution_openrouter_primary(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "MODEL_GATEWAY_PROVIDER", "openrouter")
-    chain = _provider_chain()
-    assert chain[0][0] == "openrouter"
-    assert chain[1][0] == "groq"
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_MODEL", "anthropic/claude-sonnet-4")
+
+    primary, _ = _resolve_models(None)
+    assert primary.startswith("openrouter/"), "primary must follow the active provider prefix"
 
 
-def test_chain_has_two_providers() -> None:
-    # ponytail: if a third provider is added, update this test
-    assert len(_provider_chain()) == 2
+def test_explicit_model_keeps_openrouter_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A caller-supplied fully-qualified model becomes primary; OpenRouter stays fallback.
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_OPENROUTER_MODEL", "mistralai/mistral-7b-instruct")
+
+    primary, fallback = _resolve_models("groq/llama-3.3-70b-versatile")
+    assert primary == "groq/llama-3.3-70b-versatile"
+    assert fallback.startswith("openrouter/"), "explicit model must still retain an OpenRouter fallback"

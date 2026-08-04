@@ -96,3 +96,42 @@ upgrading to LiteLLM later is a backend swap, not a redesign.
    rewrite step — never call LM Studio's endpoint from agent code directly
 2. [ ] Configure LM Studio with a 3B–4B instruction model as the only
    backend behind that interface for MVP
+
+## Update (2026-08-04): LiteLLM replaces the hand-rolled backend
+
+The Model Gateway interface (`complete()` / `complete_with_tools()`) is
+**unchanged** — all call sites in the Research Agent, retrieval pipeline, and
+`/test-llm` still compile against the same signatures.
+
+The concrete implementation now delegates to **LiteLLM** instead of a
+hand-rolled provider loop. LiteLLM owns provider routing, retries, and the
+Groq → OpenRouter fallback chain. This replaces ~140 lines of provider
+client-management code with a single `litellm.acompletion()` call.
+
+### What changed
+
+- Implementation behind the interface swapped from manual provider chain to
+  LiteLLM (`src/shared/model_gateway.py`).
+- `settings.py`: removed provider-specific `MODEL_GATEWAY_GROQ_BASE_URL` and
+  `MODEL_GATEWAY_OPENROUTER_BASE_URL` — LiteLLM derives endpoints from the
+  `provider/model` prefix. API keys and model names remain in Settings and
+  are bridged into env for LiteLLM.
+- `pyproject.toml`: `groq` and direct `openai` pins replaced by `litellm`
+  (which bundles OpenAI-compatible clients for both providers).
+
+### Why now
+
+The ADR originally deferred LiteLLM because MVP had a single backend. That
+precondition changed — a hosted fallback (OpenRouter) is now required for
+the deployed/demo environment, exactly the "multiple backends" trigger the
+ADR named for revisiting the gateway's implementation.
+
+### Consequences
+
+- Easier: adding a third provider is a model string + API key, not new
+  routing code.
+- Easier: retries and failover are handled by LiteLLM's controllers.
+- Harder: a single cloud dependency (`litellm`) now owns provider behavior;
+  upgrades must be reviewed.
+- Unchanged: the interface boundary (ADR's core point) still protects
+  callers from provider specifics.

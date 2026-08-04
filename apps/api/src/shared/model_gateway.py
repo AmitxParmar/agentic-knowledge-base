@@ -2,79 +2,71 @@
 model_gateway.py — ADR-003
 --------------------------
 Single internal interface for all LLM chat/completion calls.
-Agents and retrieval code call `complete()` or `complete_with_tools()` here;
-they never touch a provider SDK directly.
+Agents and retrieval code call `complete()` or `complete_with_tools()`
+here; they never touch a provider SDK directly.
 
-Fallback chain: Groq (primary) → OpenRouter (secondary).
-Adding a third backend = add a new _provider_chain() branch, zero call-site changes.
+LiteLLM is the concrete implementation behind this interface. It handles
+provider routing, retries, and fallback (Groq → OpenRouter), replacing
+the hand-rolled provider chain that this module previously maintained.
 
 Architecture:
-  _call_llm()  — core: provider chain, fallback, logfire spans, tool parsing
-  complete()   — thin wrapper, returns str (backward-compatible)
-  complete_with_tools() — thin wrapper, returns GatewayResponse with parsed tool calls
+    complete() / complete_with_tools()  — public interface (unchanged contract)
+    _call_llm()                         — LiteLLM delegation + response parsing
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
+import litellm
 import logfire
-from openai import APIError, AsyncOpenAI
 
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
-# ── Minimal OpenAI SDK response protocols ─────────────────────────────────────
-# ponytail: OpenAI SDK types are partially unknown — stub what we use
+# ── LiteLLM response shape ──────────────────────────────────────────────────
+# litellm.acompletion returns a union of streamed/non-streamed OpenAI-compatible
+# responses; its narrow stubs don't expose attributes off a single union member.
+# We use this minimal Protocol (same ponytail pattern as the old module) to keep
+# the gateway decoupled from any one SDK's typing.
 
-class _ChatToolCall(Protocol):
-    id: str
-    type: str
-    function: _ChatFunction
-
-
-class _ChatFunction(Protocol):
-    name: str
-    arguments: str  # JSON string, not parsed yet
-
-
-class _ChatMessage(Protocol):
+class _ResponseMessage(Protocol):
     content: str | None
-    tool_calls: list[_ChatToolCall] | None
+    tool_calls: list[Any] | None
 
 
-class _ChatChoice(Protocol):
-    message: _ChatMessage
+class _ResponseChoice(Protocol):
+    message: _ResponseMessage
 
 
-class _ChatUsage(Protocol):
-    total_tokens: int
+class _ResponseUsage(Protocol):
+    total_tokens: int | None
 
 
-class _ChatCompletion(Protocol):
-    choices: list[_ChatChoice]
-    usage: _ChatUsage | None
+class _CompletionResponse(Protocol):
+    choices: list[_ResponseChoice]
+    usage: _ResponseUsage | None
 
 
-# ── Response types ────────────────────────────────────────────────────────────
-# Lightweight types for tool-calling responses. Keeps the gateway abstracted
-# from OpenAI SDK internals — callers never import openai types directly.
+# ── Response types ──────────────────────────────────────────────────────────
+# Callers never import a provider SDK — these lightweight types are all they see.
 
 @dataclass
 class ToolFunction:
-    """A parsed function call within a tool invocation."""
+    """A parsed function call requested by the model."""
     name: str
     arguments: dict[str, Any]  # parsed from JSON, not a raw string
 
 
 @dataclass
 class ToolCall:
-    """One tool call requested by the model."""
+    """One tool invocation requested by the model."""
     id: str
     function: ToolFunction
 
@@ -82,57 +74,52 @@ class ToolCall:
 @dataclass
 class GatewayResponse:
     """
-    Unified response from all model_gateway calls.
-    - complete() populates content only, tool_calls is None
-    - complete_with_tools() populates both
+    Unified response from every model_gateway call.
+    - complete() populates content only; tool_calls is None.
+    - complete_with_tools() may populate both.
     """
     content: str | None
     tool_calls: list[ToolCall] | None = None
 
 
-# ── Provider clients (lazy-built, reused) ─────────────────────────────────────
-
-def _groq_client() -> AsyncOpenAI:
-    """Build Groq client using OpenAI SDK (same /v1/chat/completions shape)."""
-    return AsyncOpenAI(
-        api_key=settings.MODEL_GATEWAY_GROQ_API_KEY,
-        base_url=settings.MODEL_GATEWAY_GROQ_BASE_URL,
-    )
+# ── LiteLLM configuration ──────────────────────────────────────────────────
+# LiteLLM reads API keys from environment variables with a provider prefix
+# (GROQ_API_KEY, OPENROUTER_API_KEY). We bridge our Settings fields into env
+# at import time so settings.py stays the single source of truth and LiteLLM
+# wires up as it expects. Idempotent: os.environ only set when not already present.
 
 
-def _openrouter_client() -> AsyncOpenAI:
-    """Build OpenRouter client — same SDK, different base_url + usage tracking headers."""
-    return AsyncOpenAI(
-        api_key=settings.MODEL_GATEWAY_OPENROUTER_API_KEY,
-        base_url=settings.MODEL_GATEWAY_OPENROUTER_BASE_URL,
-        default_headers={
-            "HTTP-Referer": "https://research-workspace",
-            "X-Title": "Agentic Research Workspace",
-        },
-    )
+def _sync_env(key: str, value: str) -> None:
+    """Populate `key` in the environment only if empty and we have a value."""
+    if value and not os.environ.get(key):
+        os.environ[key] = value
 
 
-def _provider_chain() -> list[tuple[str, AsyncOpenAI, str]]:
+_sync_env("GROQ_API_KEY", settings.MODEL_GATEWAY_GROQ_API_KEY)
+_sync_env("OPENROUTER_API_KEY", settings.MODEL_GATEWAY_OPENROUTER_API_KEY)
+
+
+# ── Core LLM call ───────────────────────────────────────────────────────────
+
+def _resolve_models(model: str | None) -> tuple[str, str]:
     """
-    Returns ordered list of (name, client, model) to try.
-    Primary provider from settings, fallback always OpenRouter.
+    Map caller-supplied or Settings-derived model strings to LiteLLM names.
+
+    LiteLLM routes by a "provider/model" prefix:
+      - "groq/llama-3.3-70b-versatile"
+      - "openrouter/mistralai/mistral-7b-instruct"
+
+    Returns (primary_model, fallback_model). A caller may pass a fully-qualified
+    "provider/model" string, in which case that becomes primary and the default
+    OpenRouter model is used as fallback.
     """
-    primary = settings.MODEL_GATEWAY_PROVIDER.lower()
+    if model is not None:
+        return model, f"openrouter/{settings.MODEL_GATEWAY_OPENROUTER_MODEL}"
 
-    if primary == "groq":
-        return [
-            ("groq", _groq_client(), settings.MODEL_GATEWAY_MODEL),
-            ("openrouter", _openrouter_client(), settings.MODEL_GATEWAY_OPENROUTER_MODEL),
-        ]
-    else:
-        # OpenRouter as primary, Groq as fallback
-        return [
-            ("openrouter", _openrouter_client(), settings.MODEL_GATEWAY_OPENROUTER_MODEL),
-            ("groq", _groq_client(), settings.MODEL_GATEWAY_MODEL),
-        ]
+    primary = f"{settings.MODEL_GATEWAY_PROVIDER}/{settings.MODEL_GATEWAY_MODEL}"
+    fallback = f"openrouter/{settings.MODEL_GATEWAY_OPENROUTER_MODEL}"
+    return primary, fallback
 
-
-# ── Core LLM call ─────────────────────────────────────────────────────────────
 
 async def _call_llm(
     messages: list[dict[str, Any]],
@@ -143,85 +130,70 @@ async def _call_llm(
     max_tokens: int = 2048,
 ) -> GatewayResponse:
     """
-    Core LLM call with provider fallback (Groq → OpenRouter).
+    Core LLM call, delegated to LiteLLM.
 
-    Handles:
-      - Tool parameter injection (omitted when tools=None to prevent model tool calls)
-      - Logfire spans for observability
-      - Automatic fallback to next provider on APIError
-      - Parsing of OpenAI tool_calls into our lightweight ToolCall dataclasses
+    LiteLLM handles routing, retries, and the fallback chain internally
+    (primary → OpenRouter), replacing the manual provider loop we previously
+    maintained here.
 
-    Both complete() and complete_with_tools() delegate here — no duplicate code paths.
+    Returns a GatewayResponse with parsed tool calls; raises RuntimeError if
+    both providers fail, mirroring the old behavior so callers need no changes.
     """
-    providers = _provider_chain()
+    primary_model, fallback_model = _resolve_models(model)
 
-    for provider_name, client, resolved_model in providers:
+    # Build kwargs — only pass `tools` when the caller supplies any. Omitting
+    # it entirely (rather than passing []) prevents the model from calling tools.
+    kwargs: dict[str, Any] = {
+        "model": primary_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "fallbacks": [fallback_model],
+    }
+    if tools is not None:
+        kwargs["tools"] = tools
+
+    with logfire.span(
+        "model_gateway.call",
+        model=primary_model,
+        has_tools=tools is not None,
+    ):
         try:
-            # Build request kwargs — only include tools param when caller provides
-            # one. Omitting it entirely (not passing tools=[]) prevents the model
-            # from attempting any tool calls.
-            kwargs: dict[str, Any] = dict(
-                model=model or resolved_model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+            raw = await litellm.acompletion(**kwargs)
+        except Exception as exc:  # surface any provider failure uniformly
+            logger.exception("model_gateway: LiteLLM call failed")
+            logfire.error("model_gateway.call.failed", model=primary_model, error=str(exc))
+            # All providers have been exhausted by LiteLLM's controller.
+            raise RuntimeError(
+                "Model Gateway: all providers exhausted. Check API keys and provider status."
+            ) from exc
+        resp = cast(_CompletionResponse, raw)
+
+    # Parse the LiteLLM (OpenAI-compatible) response into our lightweight types.
+    msg = resp.choices[0].message
+    parsed_calls: list[ToolCall] | None = None
+    if msg.tool_calls:
+        parsed_calls = [
+            ToolCall(
+                id=tc.id,
+                function=ToolFunction(
+                    name=tc.function.name,
+                    # Parse JSON arguments into a dict — callers get a ready-to-use
+                    # dict rather than a raw JSON string.
+                    arguments=json.loads(tc.function.arguments),
+                ),
             )
-            if tools is not None:
-                kwargs["tools"] = tools
+            for tc in msg.tool_calls
+        ]
 
-            with logfire.span(
-                "model_gateway.call",
-                provider=provider_name,
-                model=resolved_model,
-                message_count=len(messages),
-                has_tools=tools is not None,
-            ):
-                resp: _ChatCompletion = await client.chat.completions.create(**kwargs)  # type: ignore[assignment]
-
-            # Parse the raw SDK response into our lightweight types
-            msg = resp.choices[0].message
-            parsed_calls: list[ToolCall] | None = None
-            if msg.tool_calls:
-                parsed_calls = [
-                    ToolCall(
-                        id=tc.id,
-                        function=ToolFunction(
-                            name=tc.function.name,
-                            # Parse JSON arguments into a dict — callers get a
-                            # ready-to-use dict instead of a raw JSON string
-                            arguments=json.loads(tc.function.arguments),
-                        ),
-                    )
-                    for tc in msg.tool_calls
-                ]
-
-            logfire.info(
-                "model_gateway.call.ok",
-                provider=provider_name,
-                tokens_used=resp.usage.total_tokens if resp.usage else None,
-                tool_calls=len(parsed_calls) if parsed_calls else 0,
-            )
-
-            return GatewayResponse(content=msg.content, tool_calls=parsed_calls)
-
-        except APIError as exc:
-            # Provider failed — log warning and continue to next provider in chain
-            logger.warning(
-                "model_gateway: provider %s failed (%s), trying next",
-                provider_name,
-                exc.message,
-            )
-            logfire.warning(
-                "model_gateway.provider_failed",
-                provider=provider_name,
-                error=str(exc),
-            )
-            continue
-
-    # All providers exhausted — raise so callers can handle gracefully
-    raise RuntimeError(
-        "Model Gateway: all providers exhausted. Check API keys and provider status."
+    logfire.info(
+        "model_gateway.call.ok",
+        model=primary_model,
+        tokens_used=resp.usage.total_tokens if resp.usage else None,
+        tool_calls=len(parsed_calls) if parsed_calls else 0,
     )
+
+    return GatewayResponse(content=msg.content, tool_calls=parsed_calls)
 
 
 # ── Public interface ──────────────────────────────────────────────────────────
@@ -232,14 +204,10 @@ async def complete(
     model: str | None = None,
     temperature: float = 0.2,
     max_tokens: int = 2048,
-    **kwargs: Any,
 ) -> str:
     """
-    Send a chat completion request through the Model Gateway.
+    Send a chat completion through the Model Gateway.
     Returns just the assistant's reply text.
-
-    This is the backward-compatible wrapper — existing callers see no change.
-    Tool-calling support is available via complete_with_tools() instead.
     """
     resp = await _call_llm(
         messages,
@@ -263,8 +231,7 @@ async def complete_with_tools(
 
     When tools is None, the model is prevented from calling tools.
     When tools is provided (list of OpenAI tool schemas), the model may
-    request tool calls — parsed into GatewayResponse.tool_calls as
-    ToolCall dataclasses with dict arguments (not raw JSON strings).
+    request tool calls — parsed into GatewayResponse.tool_calls.
     """
     return await _call_llm(
         messages,
