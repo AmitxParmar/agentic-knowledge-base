@@ -1,0 +1,74 @@
+# Render Blueprint — single deployment for the whole backend.
+#
+# One Web Service container runs the FastAPI gateway AND the arq ingestion
+# worker (see apps/api/Dockerfile). Databases are external (Neon + Upstash)
+# so nothing stateful lives in the container.
+#
+# The Cron Job is the "keep warm" trick: it pings /health every 10 minutes so
+# Render's free tier never sleeps into a 50s cold start during a recruiter demo.
+
+services:
+  - type: web
+    name: agentic-research-api
+    runtime: docker
+    plan: free
+    dockerContext: apps/api
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: CORS_ORIGINS
+        # Frontend is deployed separately (Vercel). Set to its origin, e.g.
+        # https://your-app.vercel.app. Can hold comma-separated multiple origins.
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: agentic-research-db
+          property: connectionString
+      - key: REDIS_URL
+        sync: false
+      - key: MODEL_GATEWAY_PROVIDER
+        sync: false
+      - key: MODEL_GATEWAY_MODEL
+        sync: false
+      - key: MODEL_GATEWAY_GROQ_API_KEY
+        sync: false
+      - key: MODEL_GATEWAY_OPENROUTER_API_KEY
+        sync: false
+      - key: MODEL_GATEWAY_OPENROUTER_MODEL
+        sync: false
+      # Embeddings + rerank (Cohere)
+      - key: COHERE_API_KEY
+        sync: false
+      - key: COHERE_EMBED_MODEL
+        sync: false
+      - key: COHERE_RERANK_MODEL
+        sync: false
+      # Durable object storage (Cloudflare R2)
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: LOGFIRE_TOKEN
+        sync: false
+
+  - type: cron
+    name: agentic-research-keepwarm
+    runtime: docker
+    plan: free
+    dockerContext: apps/api
+    schedule: "*/10 * * * *"
+    buildCommand: "true"
+    startCommand: 'curl -fsS http://agentic-research-api.onrender.com/health'
+    envVars:
+      - key: APP_ENV
+        value: production
+
+databases:
+  - name: agentic-research-db
+    databaseName: agentic_research
+    plan: free

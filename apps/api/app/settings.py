@@ -26,9 +26,11 @@ class Settings(BaseSettings):
 
     # ── Model Gateway (ADR-003) ───────────────────────────────────────────
     # Primary: Groq — fast inference, generous free tier
+    # LiteLLM routes to providers by "provider/model" string prefix
+    # (e.g. "groq/llama-3.3-70b-versatile", "openrouter/mistralai/...").
     MODEL_GATEWAY_PROVIDER: str = Field(
         default="groq",
-        description="Active LLM backend: 'groq' | 'openrouter'",
+        description="Primary provider prefix: 'groq' | 'openrouter'",
     )
     MODEL_GATEWAY_MODEL: str = Field(
         default="llama-3.3-70b-versatile",
@@ -37,44 +39,32 @@ class Settings(BaseSettings):
 
     # Groq
     MODEL_GATEWAY_GROQ_API_KEY: str = Field(default="", description="Groq API key")
-    MODEL_GATEWAY_GROQ_BASE_URL: str = Field(
-        default="https://api.groq.com/openai/v1",
-        description="Groq OpenAI-compatible endpoint",
-    )
 
     # OpenRouter (fallback)
     MODEL_GATEWAY_OPENROUTER_API_KEY: str = Field(default="", description="OpenRouter API key")
-    MODEL_GATEWAY_OPENROUTER_BASE_URL: str = Field(
-        default="https://openrouter.ai/api/v1",
-        description="OpenRouter OpenAI-compatible endpoint",
-    )
     MODEL_GATEWAY_OPENROUTER_MODEL: str = Field(
         default="mistralai/mistral-7b-instruct",
         description="Fallback model on OpenRouter",
     )
 
-    # ── BGE models (self-hosted HTTP endpoints) ───────────────────────────
-    BGE_EMBEDDER_URL: str = Field(
-        default="http://localhost:8001/embed",
-        description="BGE-M3 embedding endpoint (self-hosted)",
+    # ── Cohere (embeddings + rerank) ──────────────────────────────────────
+    # Embeddings use embed-v3 (1024 dims, matches EMBEDDING_DIM); rerank uses
+    # rerank-v3. Cohere has a generous free trial tier. See ADR-003 addendum.
+    COHERE_API_KEY: str = Field(default="", description="Cohere API key")
+    COHERE_EMBED_MODEL: str = Field(
+        default="embed-english-v3.0",
+        description="Cohere embedding model (1024 dims)",
     )
-    BGE_RERANKER_URL: str = Field(
-        default="http://localhost:8002/rerank",
-        description="BGE-Reranker-v2-m3 rerank endpoint (self-hosted)",
+    COHERE_RERANK_MODEL: str = Field(
+        default="rerank-multilingual-v3.0",
+        description="Cohere rerank model",
     )
 
-    # ── LM Studio (local inference server) ────────────────────────────────
-    LM_STUDIO_BASE_URL: str = Field(
-        default="http://localhost:12345",
-        description="LM Studio OpenAI-compatible base URL",
-    )
-    LM_STUDIO_EMBEDDING_MODEL: str = Field(
-        default="text-embedding-bge-m3",
-        description="Embedding model loaded in LM Studio",
-    )
-    LM_STUDIO_RERANKER_MODEL: str = Field(
-        default="text-embedding-bge-reranker-v2-m3",
-        description="Reranker model loaded in LM Studio",
+    # Embedding vector dimensionality — must match chunks.embedding column
+    # (migration uses vector(EMBEDDING_DIM)). Cohere embed-v3 produces 1024 dims.
+    EMBEDDING_DIM: int = Field(
+        default=1024,
+        description="Dimension of embedding vectors stored in Postgres",
     )
 
     # ── Observability ─────────────────────────────────────────────────────
@@ -92,11 +82,38 @@ class Settings(BaseSettings):
     # ── App ───────────────────────────────────────────────────────────────
     UPLOAD_DIR: str = Field(
         default=str(Path.cwd() / ".data" / "uploads"),
-        description="Writable directory for raw uploaded source files",
+        description="Writable directory for raw uploaded source files (local fallback)",
     )
+
+    # ── Object storage (Cloudflare R2) ────────────────────────────────────
+    # S3-compatible durable storage for uploads. When R2_BUCKET is empty the
+    # app falls back to the local UPLOAD_DIR (dev-only — lost on redeploy).
+    R2_ENDPOINT: str = Field(
+        default="",
+        description="R2 S3 endpoint (e.g. https://<account>.r2.cloudflarestorage.com)",
+    )
+    R2_ACCESS_KEY_ID: str = Field(default="", description="R2 access key id")
+    R2_SECRET_ACCESS_KEY: str = Field(default="", description="R2 secret access key")
+    R2_BUCKET: str = Field(default="", description="R2 bucket name; empty = local fallback")
+
+    @property
+    def r2_enabled(self) -> bool:
+        return bool(self.R2_ENDPOINT and self.R2_ACCESS_KEY_ID and self.R2_BUCKET)
 
     APP_ENV: str = Field(default="development", description="development | production")
     APP_DEBUG: bool = Field(default=False)
+
+    # ── CORS ───────────────────────────────────────────────────────────────
+    # Comma-separated list of allowed browser origins. In production this is
+    # the deployed frontend (Vercel/static), in dev the Next.js dev server.
+    CORS_ORIGINS: str = Field(
+        default="http://localhost:3000",
+        description="Comma-separated allowed CORS origins",
+    )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
 
 @lru_cache(maxsize=1)
