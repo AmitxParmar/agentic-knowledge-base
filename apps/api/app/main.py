@@ -38,13 +38,7 @@ async def lifespan(app: FastAPI):
     # ── Startup ───────────────────────────────────────────────────────────
     configure_observability(app)  # logfire + langfuse
     await db_connect()  # warm connection pool
-    
-    # Rebuild vector index from Postgres if empty (ADR-002: Postgres is authoritative)
-    from src.retrieval.vector_index import rebuild_index_from_postgres
-    rebuilt = await rebuild_index_from_postgres()
-    if rebuilt > 0:
-        logfire.info("vector_index.rebuilt", count=rebuilt)
-    
+    # Embeddings live in Postgres (pgvector) — no in-memory index to rebuild.
     logfire.info("app.started", env=settings.APP_ENV)
 
     yield
@@ -66,10 +60,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS — tighten origins before going to prod
+    # CORS — origins from settings (dev: localhost:3000, prod: Vercel/deployed frontend)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],  # Next.js dev server
+        allow_origins=settings.cors_origin_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import logfire
@@ -17,11 +16,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import src.shared.models  # noqa: F401 — register all ORM models before any query
+from app.settings import settings
 from src.ingestion.chunker import chunk_document
 from src.ingestion.extractors import extract
 from src.ingestion.models import Chunk, Document, IngestionJob, JobStage
+from src.ingestion.storage import open_ref
 from src.retrieval.embedder import embed_texts
-from src.retrieval.vector_index import get_vector_index
 from src.shared.database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,13 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> None:
 
     await _update_stage(session, doc, job, JobStage.extracting)
     with logfire.span("ingestion.extract", source_type=doc.source_type.value):
-        content = extract(Path(doc.storage_path), source_type=doc.source_type.value)
+        # R2 refs materialize to a temp file; remove it after extraction.
+        source_path = open_ref(doc.storage_path)
+        try:
+            content = extract(source_path, source_type=doc.source_type.value)
+        finally:
+            if settings.r2_enabled and doc.storage_path.startswith("uploads/"):
+                source_path.unlink(missing_ok=True)
 
     await _update_stage(session, doc, job, JobStage.chunking)
     with logfire.span("ingestion.chunk"):
@@ -62,7 +68,7 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> None:
         vectors = await embed_texts([chunk.text for chunk in chunk_results])
 
     with logfire.span("ingestion.persist", chunk_count=len(chunk_results)):
-        chunk_rows: list[tuple[Chunk, list[float]]] = []
+        chunk_rows: list[Chunk] = []
         for chunk_result, vector in zip(chunk_results, vectors, strict=True):
             chunk_id = uuid.uuid4()
             chunk_row = Chunk(
@@ -71,16 +77,13 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> None:
                 position=chunk_result.position,
                 text=chunk_result.text,
                 turbovec_id=str(chunk_id),
+                embedding=vector,
                 chunk_metadata=chunk_result.metadata,
             )
             session.add(chunk_row)
-            chunk_rows.append((chunk_row, vector))
+            chunk_rows.append(chunk_row)
 
         await session.flush()
-
-        vector_index = get_vector_index()
-        for chunk_row, vector in chunk_rows:
-            vector_index.upsert(chunk_row.turbovec_id, vector)
 
     await _update_stage(session, doc, job, JobStage.done)
     logfire.info("ingestion.done", document_id=str(document_id), chunks=len(chunk_rows))

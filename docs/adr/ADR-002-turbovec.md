@@ -77,3 +77,31 @@ one-time integration cost paid once, not an ongoing operational one.
    allowlist consumed by Turbovec (see `docs/specs/retrieval.md`)
 2. [ ] Ensure every `chunks` row has a corresponding Turbovec vector and vice
    versa — no orphaned vectors
+
+## Update (2026-08-04): pgvector replaces Turbovec for the demo deployment
+
+**Context:** The demo deploys to Render's free tier, where containers sleep
+and process memory is wiped on every cold start. Turbovec is an in-process
+index — every cold boot required a full `rebuild_index_from_postgres()`, which
+re-embedded every chunk (slow, and an API call per chunk when embeddings are
+hosted) and delayed the first request by 10–30s.
+
+**Decision:** Store chunk embeddings directly on `chunks.embedding` as a
+`pgvector` column (migration `9f2a1c3b4e5d`). Dense search is now a single
+SQL `ORDER BY embedding <=> :query` query scoped by the workspace allowlist.
+`vector_index.py` exposes `vector_search()` in place of the in-process
+`VectorIndex`.
+
+**Why:** For a single-tenant demo the ADR's own trade-off analysis says
+pgvector is "adequate at small-to-medium scale" and this removes the second
+store to keep in sync — Postgres becomes the only source of truth for both
+metadata and vectors. Cold start drops to just FastAPI boot (<1s) with zero
+rebuild and zero embedding API calls.
+
+**Consequences:**
+- Easier: no in-process state, survives cold starts, one store to manage
+- Easier: workspace pre-filter happens in the same query (no allowlist hand-off)
+- Harder: replacing the embedding model changes vector dimensionality and
+  requires a new migration (fixed at `vector(1024)` for BGE-M3)
+- Revisit: Turbovec's quantization advantage matters only at large scale,
+  which the demo does not reach

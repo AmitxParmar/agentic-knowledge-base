@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ingestion.models import Chunk, Document
 from src.retrieval.embedder import embed_query, rerank
-from src.retrieval.vector_index import VectorSearchResult, get_vector_index
+from src.retrieval.vector_index import VectorSearchResult, vector_search
 from src.shared.model_gateway import complete
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,9 @@ async def _hybrid_search(
         return []
 
     query_vector = await embed_query(query)
-    dense_results = get_vector_index().search(query_vector, id_allowlist=id_allowlist, top_k=pool)
+    dense_results = await vector_search(
+        query_vector, id_allowlist=id_allowlist, top_k=pool, session=session
+    )
     bm25_results = await _bm25_search(query, id_allowlist, session, top_k=pool)
     fused_ids = _reciprocal_rank_fusion(dense_results, bm25_results, pool=pool)
     return await _hydrate_chunks(fused_ids, session)
@@ -104,12 +106,12 @@ async def _bm25_search(
     top_k: int,
 ) -> list[tuple[str, float]]:
     ts_query = func.plainto_tsquery("english", query)
-    rank = func.ts_rank_cd(func.to_tsvector("english", Chunk.text), ts_query)
+    rank = func.ts_rank_cd(Chunk.tsv, ts_query)
 
     result = await session.execute(
         select(Chunk.turbovec_id, rank.label("rank"))
         .where(Chunk.turbovec_id.in_(id_allowlist))
-        .where(func.to_tsvector("english", Chunk.text).op("@@")(ts_query))
+        .where(Chunk.tsv.op("@@")(ts_query))
         .order_by(desc("rank"))
         .limit(top_k)
     )

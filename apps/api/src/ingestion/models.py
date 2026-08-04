@@ -18,10 +18,12 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import DateTime, Enum, FetchedValue, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.settings import settings
 from src.shared.database import Base
 
 if TYPE_CHECKING:
@@ -101,11 +103,17 @@ class Chunk(Base):
     # Join key to Turbovec — same UUID string used as turbovec record id
     # ponytail: UUID is its own join key — no extra lookup table needed
     turbovec_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # Dense embedding persisted in Postgres (pgvector). Source of truth for the
+    # vector index — survives cold starts, no in-memory rebuild required.
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(settings.EMBEDDING_DIM), nullable=True
+    )
     # Inherited metadata from document-level extraction (author, date, category, page, etc.)
     # ponytail: renamed from 'metadata' to avoid SQLAlchemy Base.metadata conflict
     chunk_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    # tsvector column for BM25 full-text search (populated by Postgres trigger)
-    # Declared here as a string column; actual tsvector type managed by migration
+    # Generated tsvector column for BM25 full-text search — computed by Postgres,
+    # never written from Python. Read-only in the ORM (FetchedValue).
+    tsv: Mapped[str | None] = mapped_column(server_default=FetchedValue(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
