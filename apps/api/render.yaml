@@ -22,9 +22,10 @@ services:
         # https://your-app.vercel.app. Can hold comma-separated multiple origins.
         sync: false
       - key: DATABASE_URL
-        fromDatabase:
-          name: agentic-research-db
-          property: connectionString
+        # Points at the existing Neon project (pooler URL from apps/api/.env).
+        # We do NOT use Render's managed `databases:` block so the deployed app
+        # shares the same Postgres that already has our chunks + migrations.
+        sync: false
       - key: REDIS_URL
         sync: false
       - key: MODEL_GATEWAY_PROVIDER
@@ -67,8 +68,3 @@ services:
     envVars:
       - key: APP_ENV
         value: production
-
-databases:
-  - name: agentic-research-db
-    databaseName: agentic_research
-    plan: free
