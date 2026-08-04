@@ -7,10 +7,8 @@ Upload returns immediately while arq processes the job in the background.
 
 from __future__ import annotations
 
-import shutil
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 
 import arq
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -21,13 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.settings import settings
 from src.auth.stub import get_user_id, get_workspace_id
 from src.ingestion.models import Document, IngestionJob, JobStage, SourceType
+from src.ingestion.storage import store
 from src.shared.database import get_session
 from src.shared.errors import NotFoundError
 
 router = APIRouter()
-
-UPLOAD_DIR = Path(settings.UPLOAD_DIR)
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class UploadResponse(BaseModel):
@@ -59,18 +55,17 @@ async def upload_document(
         raise HTTPException(status_code=422, detail=f"Invalid source_type: {source_type!r}")
 
     doc_id = uuid.uuid4()
-    dest = UPLOAD_DIR / str(workspace_id) / f"{doc_id}_{file.filename}"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    with dest.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # Durable storage (R2 when configured, local otherwise) — returns a ref
+    # that ingestion reads back later. Never point at Render's ephemeral disk.
+    storage_ref = store(file.file, workspace_id=workspace_id, document_id=doc_id, filename=file.filename or "upload")
 
     doc = Document(
         id=doc_id,
         workspace_id=workspace_id,
         source_type=SourceType(source_type),
         filename=file.filename or "upload",
-        source_ref=str(dest),
-        storage_path=str(dest),
+        source_ref=storage_ref,
+        storage_path=storage_ref,
         processing_status=JobStage.queued,
     )
     session.add(doc)
