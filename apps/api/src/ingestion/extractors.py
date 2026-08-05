@@ -38,22 +38,18 @@ class ExtractedContent:
 
 def extract_pdf(path: Path) -> ExtractedContent:
     """
-    Docling layout-aware extraction. Preserves heading hierarchy and tables
-    as structured objects — not flattened text. This is what lets Chonkie
-    respect document structure when chunking.
+    Lightweight PDF text extraction via pypdf.
     """
-    from docling.document_converter import DocumentConverter
+    from pypdf import PdfReader
 
-    converter = DocumentConverter()
-    result = converter.convert(str(path))
-    doc = result.document
-
-    # Export to markdown — preserves headings/tables in a form Chonkie understands
-    text = doc.export_to_markdown()
+    reader = PdfReader(str(path))
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() + "\n"
 
     metadata = {
-        "title": getattr(doc, "name", path.stem),
-        "page_count": len(getattr(doc, "pages", [])),
+        "title": reader.metadata.title if reader.metadata else path.stem,
+        "page_count": len(reader.pages),
     }
 
     logger.info("extract_pdf: %s, pages=%s", path.name, metadata["page_count"])

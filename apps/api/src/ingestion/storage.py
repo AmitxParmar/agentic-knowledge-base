@@ -2,10 +2,10 @@
 ingestion/storage.py
 --------------------
 Purpose:    Durable object storage for raw uploads.
-            Cloudflare R2 (S3-compatible) when configured; local filesystem
+            Backblaze B2 (S3-compatible) when configured; local filesystem
             fallback for dev. Render's container filesystem is ephemeral, so
-            uploads must live in R2 to survive redeploys.
-Dependencies: boto3 (optional, R2 only), settings
+            uploads must live in B2 to survive redeploys.
+Dependencies: boto3 (optional, B2 only), settings
 Scope:      Two operations: store() raw bytes, and open() a source for reading.
             Keeps ingestion/router.py and ingestion/pipeline.py storage-agnostic.
 """
@@ -28,7 +28,7 @@ _PREFIX = "uploads"
 
 
 def _r2_client() -> Any:
-    """Lazy S3 client pointed at Cloudflare R2."""
+    """Lazy S3 client pointed at Backblaze B2."""
     import boto3
 
     return boto3.client(
@@ -36,7 +36,7 @@ def _r2_client() -> Any:
         endpoint_url=settings.R2_ENDPOINT,
         aws_access_key_id=settings.R2_ACCESS_KEY_ID,
         aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
-        region_name="auto",
+        region_name=settings.R2_REGION,
     )
 
 

@@ -85,16 +85,17 @@ class Settings(BaseSettings):
         description="Writable directory for raw uploaded source files (local fallback)",
     )
 
-    # ── Object storage (Cloudflare R2) ────────────────────────────────────
+    # ── Object storage (Backblaze B2 S3-compatible) ─────────────────────
     # S3-compatible durable storage for uploads. When R2_BUCKET is empty the
     # app falls back to the local UPLOAD_DIR (dev-only — lost on redeploy).
     R2_ENDPOINT: str = Field(
         default="",
-        description="R2 S3 endpoint (e.g. https://<account>.r2.cloudflarestorage.com)",
+        description="S3 endpoint (e.g. https://s3.us-west-004.backblazeb2.com)",
     )
-    R2_ACCESS_KEY_ID: str = Field(default="", description="R2 access key id")
-    R2_SECRET_ACCESS_KEY: str = Field(default="", description="R2 secret access key")
-    R2_BUCKET: str = Field(default="", description="R2 bucket name; empty = local fallback")
+    R2_ACCESS_KEY_ID: str = Field(default="", description="S3 access key id")
+    R2_SECRET_ACCESS_KEY: str = Field(default="", description="S3 secret access key")
+    R2_BUCKET: str = Field(default="", description="Bucket name; empty = local fallback")
+    R2_REGION: str = Field(default="auto", description="S3 region (auto for R2, us-east-1 for B2)")
 
     @property
     def r2_enabled(self) -> bool:

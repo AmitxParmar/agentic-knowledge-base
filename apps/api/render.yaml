@@ -4,8 +4,10 @@
 # worker (see apps/api/Dockerfile). Databases are external (Neon + Upstash)
 # so nothing stateful lives in the container.
 #
-# The Cron Job is the "keep warm" trick: it pings /health every 10 minutes so
-# Render's free tier never sleeps into a 50s cold start during a recruiter demo.
+# No keep-warm cron: on the free tier every active minute counts toward the
+# 750-hour monthly budget, and Render only offers cron jobs on paid plans.
+# The service sleeps after idle and pays a short cold start on first hit —
+# acceptable for a demo.
 
 services:
   - type: web
@@ -45,7 +47,7 @@ services:
         sync: false
       - key: COHERE_RERANK_MODEL
         sync: false
-      # Durable object storage (Cloudflare R2)
+      # Durable object storage (Backblaze B2 S3-compatible)
       - key: R2_ENDPOINT
         sync: false
       - key: R2_ACCESS_KEY_ID
@@ -54,17 +56,7 @@ services:
         sync: false
       - key: R2_BUCKET
         sync: false
+      - key: R2_REGION
+        sync: false
       - key: LOGFIRE_TOKEN
         sync: false
-
-  - type: cron
-    name: agentic-research-keepwarm
-    runtime: docker
-    plan: free
-    dockerContext: apps/api
-    schedule: "*/10 * * * *"
-    buildCommand: "true"
-    startCommand: 'curl -fsS http://agentic-research-api.onrender.com/health'
-    envVars:
-      - key: APP_ENV
-        value: production

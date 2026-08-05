@@ -147,17 +147,16 @@ Gaps for a product API: document list/delete, readiness probe, rate limits, real
 
 ## Hosting
 
-**Can it run on Render?** Yes **if paid/always-on** web + always-on worker. **Free / spin-down tiers are a bad fit** (worker dies, cold starts, WS flakes, Turbovec rebuild on wake).
+**Can it run on Render?** Yes — it currently runs on **Render free tier** as a single Docker container (`alembic upgrade head` → arq worker + uvicorn). Trade-offs accepted: the free container sleeps after idle and pays a short cold start on first hit; no keep-warm cron (free tier budgets ~750 active hours/month and cron jobs require paid plans).
 
-**Recommended split:**
+**Current split (deployed):**
 
 ```text
-Vercel     → Next.js
-Neon       → Postgres
-Upstash    → Redis
-Fly / Railway / paid Render / VPS
-           → FastAPI + arq worker
-Optional   → BGE / heavy ingestion on a dedicated box
+Vercel (planned) → Next.js
+Neon             → Postgres (pgvector + tsvector, live)
+Upstash Redis    → arq job queue (live)
+Render free tier → FastAPI + arq worker in one container (live)
+Cloudflare R2    → durable upload storage (configured, env-set)
 ```
 
 ---
