@@ -66,8 +66,22 @@
   word-break: break-all;
 }
 
+.popoverTextSection {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid hsl(var(--border));
+}
+
+.popoverText {
+  font-size: 13px;
+  line-height: 1.6;
+  color: hsl(var(--foreground));
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 .popoverHint {
-  margin-top: var(--space-2);
   font-size: 11px;
   color: hsl(var(--muted-foreground));
   font-style: italic;

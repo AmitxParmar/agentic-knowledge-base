@@ -11,14 +11,14 @@ import uuid
 from datetime import UTC, datetime
 
 import arq
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.settings import settings
 from src.auth.stub import get_user_id, get_workspace_id
-from src.ingestion.models import Document, IngestionJob, JobStage, SourceType
+from src.ingestion.models import Chunk, Document, IngestionJob, JobStage, SourceType
 from src.ingestion.storage import store
 from src.shared.database import get_session
 from src.shared.errors import NotFoundError
@@ -107,4 +107,113 @@ async def get_job_status(
         document_id=str(job.document_id),
         stage=job.stage.value,
         error=job.error_detail,
+    )
+
+
+# ── List / read / delete endpoints (Phase 2) ─────────────────────────────────
+
+
+class DocumentResponse(BaseModel):
+    document_id: str
+    source_type: str
+    filename: str
+    processing_status: str
+    created_at: str
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentResponse]
+    total: int
+
+
+class ChunkResponse(BaseModel):
+    chunk_id: str
+    document_id: str
+    source_ref: str
+    text: str
+    position: int
+
+
+@router.get("/documents", response_model=DocumentListResponse)
+async def list_documents(
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> DocumentListResponse:
+    """List documents in the workspace, newest first, paginated."""
+    count_result = await session.execute(
+        select(func.count(Document.id)).where(Document.workspace_id == workspace_id)
+    )
+    total = count_result.scalar_one()
+
+    result = await session.execute(
+        select(Document)
+        .where(Document.workspace_id == workspace_id)
+        .order_by(Document.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    documents = result.scalars().all()
+
+    return DocumentListResponse(
+        documents=[
+            DocumentResponse(
+                document_id=str(doc.id),
+                source_type=doc.source_type.value,
+                filename=doc.filename,
+                processing_status=doc.processing_status.value,
+                created_at=doc.created_at.isoformat(),
+            )
+            for doc in documents
+        ],
+        total=total,
+    )
+
+
+@router.get("/chunks/{chunk_id}", response_model=ChunkResponse)
+async def get_chunk(
+    chunk_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+) -> ChunkResponse:
+    """Fetch a single chunk's full text by ID."""
+    result = await session.execute(select(Chunk).where(Chunk.id == chunk_id))
+    chunk = result.scalar_one_or_none()
+
+    if chunk is None:
+        raise NotFoundError(f"Chunk {chunk_id} not found")
+
+    return ChunkResponse(
+        chunk_id=str(chunk.id),
+        document_id=str(chunk.document_id),
+        source_ref=chunk.document.source_ref,
+        text=chunk.text,
+        position=chunk.position,
+    )
+
+
+@router.delete("/documents/{document_id}", status_code=204)
+async def delete_document(
+    document_id: uuid.UUID,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Delete a document and cascade to its chunks."""
+    result = await session.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.workspace_id == workspace_id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+
+    if doc is None:
+        raise NotFoundError(f"Document {document_id} not found in workspace")
+
+    await session.execute(delete(Chunk).where(Chunk.document_id == document_id))
+    await session.execute(
+        delete(Document).where(
+            Document.id == document_id,
+            Document.workspace_id == workspace_id,
+        )
     )

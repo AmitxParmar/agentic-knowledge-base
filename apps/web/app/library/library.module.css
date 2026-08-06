@@ -1,0 +1,128 @@
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: hsl(var(--muted-foreground));
+  margin-top: var(--space-1);
+  margin-bottom: var(--space-6);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.itemInfo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.filename {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sourceType {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px var(--space-2);
+  border-radius: 4px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+.queued,
+.extracting,
+.chunking,
+.embedding {
+  color: hsl(var(--warning));
+  background: hsl(var(--warning) / 0.1);
+}
+
+.done {
+  color: hsl(var(--success));
+  background: hsl(var(--success) / 0.1);
+}
+
+.failed {
+  color: hsl(var(--destructive));
+  background: hsl(var(--destructive) / 0.1);
+}
+
+.deleteButton {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 var(--space-3);
+  font-size: 13px;
+  color: hsl(var(--destructive));
+  background: transparent;
+  border: 1px solid hsl(var(--destructive) / 0.3);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 200ms ease-out;
+}
+
+.deleteButton:hover:not(:disabled) {
+  background: hsl(var(--destructive) / 0.08);
+}
+
+.deleteButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+  font-size: 14px;
+  color: hsl(var(--muted-foreground));
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+  font-size: 14px;
+  color: hsl(var(--destructive));
+}

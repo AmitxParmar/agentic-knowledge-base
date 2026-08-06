@@ -41,6 +41,7 @@ export function AnswerPanel({ answer, citations }: AnswerPanelProps) {
                   <CitationRef
                     key={index}
                     index={citation.index}
+                    chunkId={citation.chunkId}
                     sourceRef={citation.sourceRef}
                     relevanceScore={citation.relevanceScore}
                   />
@@ -63,6 +64,7 @@ export function AnswerPanel({ answer, citations }: AnswerPanelProps) {
             <CitationRef
               key={citation.chunkId || citation.index}
               index={citation.index}
+              chunkId={citation.chunkId}
               sourceRef={citation.sourceRef}
               relevanceScore={citation.relevanceScore}
             />

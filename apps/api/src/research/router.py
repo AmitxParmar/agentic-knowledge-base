@@ -25,7 +25,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 import logfire
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.stub import get_user_id, get_workspace_id
@@ -133,6 +135,54 @@ async def research_websocket(
         except Exception:
             pass
         await ws.close()
+
+
+class RunSummary(BaseModel):
+    run_id: str
+    question: str
+    status: str
+    created_at: str
+
+
+class RunListResponse(BaseModel):
+    runs: list[RunSummary]
+    total: int
+
+
+@router.get("/runs", response_model=RunListResponse)
+async def list_runs(
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> RunListResponse:
+    """List research runs in the workspace, newest first, paginated."""
+    count_result = await session.execute(
+        select(func.count(ResearchRun.id)).where(ResearchRun.workspace_id == workspace_id)
+    )
+    total = count_result.scalar_one()
+
+    result = await session.execute(
+        select(ResearchRun)
+        .where(ResearchRun.workspace_id == workspace_id)
+        .order_by(ResearchRun.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    runs = result.scalars().all()
+
+    return RunListResponse(
+        runs=[
+            RunSummary(
+                run_id=str(run.id),
+                question=run.question,
+                status=run.status.value,
+                created_at=run.created_at.isoformat(),
+            )
+            for run in runs
+        ],
+        total=total,
+    )
 
 
 @router.get("/runs/{run_id}")

@@ -55,6 +55,84 @@ export async function getRunDetail(runId: string): Promise<RunDetail> {
   return response.json();
 }
 
+export interface DocumentListItem {
+  document_id: string;
+  source_type: string;
+  filename: string;
+  processing_status: string;
+  created_at: string;
+}
+
+export interface DocumentList {
+  documents: DocumentListItem[];
+  total: number;
+}
+
+export interface RunListItem {
+  run_id: string;
+  question: string;
+  status: string;
+  created_at: string;
+}
+
+export interface RunList {
+  runs: RunListItem[];
+  total: number;
+}
+
+export interface ChunkItem {
+  chunk_id: string;
+  document_id: string;
+  source_ref: string;
+  text: string;
+  position: number;
+}
+
+export async function listDocuments(limit = 50, offset = 0): Promise<DocumentList> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  const response = await fetch(`${API_BASE_URL}/api/ingestion/documents?${params}`, {
+    method: "GET",
+    headers: getWorkspaceHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`List documents failed: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function deleteDocument(documentId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/ingestion/documents/${documentId}`, {
+    method: "DELETE",
+    headers: getWorkspaceHeaders(),
+  });
+  if (!response.ok && response.status !== 204) {
+    throw new Error(`Delete document failed: ${response.statusText}`);
+  }
+}
+
+export async function getChunk(chunkId: string): Promise<ChunkItem> {
+  const response = await fetch(`${API_BASE_URL}/api/ingestion/chunks/${chunkId}`, {
+    method: "GET",
+    headers: getWorkspaceHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Get chunk failed: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function listRuns(limit = 50, offset = 0): Promise<RunList> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  const response = await fetch(`${API_BASE_URL}/api/research/runs?${params}`, {
+    method: "GET",
+    headers: getWorkspaceHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`List runs failed: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 export async function uploadDocument(
   file: File,
   sourceType: "pdf" | "repo" | "audio",
