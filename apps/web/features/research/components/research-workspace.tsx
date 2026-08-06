@@ -1,10 +1,10 @@
 /**
  * features/research/components/research-workspace.tsx
  * ---------------------------------------------------
- * Purpose:    Orchestrates the full research loop — upload → poll → ask →
- *             progress → answer — within a single client component.
- * Dependencies: upload-composer, question-composer, progress-stage-list,
- *               answer-panel, use-research-run
+ * Purpose:    Orchestrates the full research loop — upload → ask → answer.
+ *             Uses TanStack AI's ResearchChat (ws-transport adapter) for the
+ *             question/chat flow, and the AnswerPanel for the final result.
+ * Dependencies: upload-composer, research-chat, answer-panel
  * Scope:      /research page body.
  */
 
@@ -12,9 +12,9 @@
 
 import { useState } from "react";
 import { UploadComposer } from "./upload-composer";
-import { QuestionComposer } from "./question-composer";
-import { ProgressStageList } from "./progress-stage-list";
+import { ResearchChat } from "./research-chat";
 import { AnswerPanel } from "./answer-panel";
+import { ProgressStageList } from "./progress-stage-list";
 import { useResearchRun } from "../api/use-research-run";
 import styles from "./research-workspace.module.css";
 
@@ -22,19 +22,20 @@ export function ResearchWorkspace() {
   const [ready, setReady] = useState(false);
   const { state, startResearch } = useResearchRun();
 
-  const currentStage = state.stages[state.stages.length - 1] ?? null;
-
   return (
     <main className={styles.workspace}>
       <UploadComposer onIngestionComplete={() => setReady(true)} />
 
-      <QuestionComposer disabled={!ready} onSubmit={startResearch} />
+      <ResearchChat
+        disabled={!ready}
+        onQuestion={startResearch}
+      />
 
       {state.stages.length > 0 && (
         <div className={styles.progressSection}>
           <ProgressStageList
             completedStages={state.stages.slice(0, -1)}
-            currentStage={currentStage}
+            currentStage={state.stages[state.stages.length - 1] ?? null}
           />
         </div>
       )}
