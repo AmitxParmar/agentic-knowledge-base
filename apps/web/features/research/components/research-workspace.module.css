@@ -1,0 +1,25 @@
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+}
+
+.progressSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.error {
+  font-size: 13px;
+  color: hsl(var(--destructive));
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: hsl(var(--destructive) / 0.08);
+}

@@ -1,13 +1,66 @@
+/**
+ * globals.css
+ * ----------
+ * Purpose:    Single source of truth for design tokens, typography, base
+ *             styles, and global utility classes. Per-component styles live
+ *             in co-located .module.css files.
+ * Dependencies: none (consumes CSS vars set here)
+ * Scope:      App-wide.
+ */
+
+/* ── Design tokens ─────────────────────────────────────────────────────────── */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 221 83% 53%;
+  --accent-foreground: 0 0% 100%;
+  --border: 214 32% 91%;
+  --destructive: 0 84% 60%;
+  --success: 142 71% 45%;
+  --warning: 38 92% 50%;
+  --ring: 221 83% 53%;
+
+  --radius: 8px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: 222 47% 6%;
+    --foreground: 210 40% 96%;
+    --muted: 217 33% 12%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+    --border: 217 33% 18%;
+    --destructive: 0 62% 50%;
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --ring: 217 91% 60%;
   }
+}
+
+/* ── Base resets ───────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
 }
 
 html,
@@ -17,14 +70,14 @@ body {
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-}
-
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: -0.011em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 a {
@@ -32,19 +85,82 @@ a {
   text-decoration: none;
 }
 
-.imgDark {
-  display: none;
-}
-
 @media (prefers-color-scheme: dark) {
   html {
     color-scheme: dark;
   }
+}
 
-  .imgLight {
-    display: none;
+/* ── Typography ────────────────────────────────────────────────────────────── */
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.022em;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+h1 {
+  font-size: 30px;
+}
+
+h2 {
+  font-size: 20px;
+}
+
+h3 {
+  font-size: 16px;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.text-small {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── Focus visibility ──────────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
-  .imgDark {
-    display: unset;
-  }
+}
+
+/* ── Global utility classes ────────────────────────────────────────────────── */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
 }

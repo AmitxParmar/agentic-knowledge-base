@@ -1,0 +1,97 @@
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 2px var(--space-2);
+  border-radius: 4px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+.badgeReady {
+  color: hsl(var(--success));
+  background: hsl(var(--success) / 0.1);
+}
+
+.textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: var(--space-3);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  resize: vertical;
+}
+
+.textarea:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -1px;
+}
+
+.textarea::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.charHint {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  font-family: var(--font-mono);
+}
+
+.submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 var(--space-6);
+  font-size: 14px;
+  font-weight: 500;
+  color: hsl(var(--accent-foreground));
+  background: hsl(var(--accent));
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: opacity 200ms ease-out;
+}
+
+.submit:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  font-size: 13px;
+  color: hsl(var(--destructive));
+}
