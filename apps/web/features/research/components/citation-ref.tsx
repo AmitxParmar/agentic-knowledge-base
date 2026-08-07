@@ -3,14 +3,19 @@
  * ---------------------------------------------
  * Purpose:    Superscript [n] citation button with hover popover.
  *             Popover shows source_ref + relevance + full chunk text.
- * Dependencies: citation-ref.module.css, lib/utils.ts, api/use-chunk.ts
+ *             Code files (by extension) render with syntax highlighting.
+ * Dependencies: citation-ref.module.css, lib/utils.ts, api/use-chunk.ts,
+ *               react-syntax-highlighter
  * Scope:      Answer panel inline citations.
  */
 
 "use client";
 
 import { useState } from "react";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useChunk } from "../api/use-chunk";
+import { detectLanguage, isCodeFile } from "../utils/detect-language";
 import styles from "./citation-ref.module.css";
 
 interface CitationRefProps {
@@ -32,6 +37,31 @@ function PopoverContent({
   relevanceScore: number;
 }) {
   const { data: chunk, isLoading, error } = useChunk(chunkId);
+  const codeFile = isCodeFile(sourceRef);
+  const language = detectLanguage(sourceRef);
+
+  function renderText(text: string) {
+    if (codeFile) {
+      return (
+        <SyntaxHighlighter
+          language={language}
+          style={oneDark}
+          customStyle={{
+            margin: 0,
+            fontSize: "12px",
+            lineHeight: "1.55",
+            borderRadius: "6px",
+            maxHeight: "240px",
+          }}
+          showLineNumbers
+          lineNumberStyle={{ fontSize: "10px", opacity: 0.4 }}
+        >
+          {text}
+        </SyntaxHighlighter>
+      );
+    }
+    return <p className={styles.popoverText}>{text}</p>;
+  }
 
   return (
     <div className={styles.popover} role="tooltip">
@@ -44,7 +74,7 @@ function PopoverContent({
       <div className={styles.popoverTextSection}>
         {isLoading && <p className={styles.popoverHint}>Loading passage…</p>}
         {error && <p className={styles.popoverHint}>Failed to load passage.</p>}
-        {chunk && <p className={styles.popoverText}>{chunk.text}</p>}
+        {chunk && renderText(chunk.text)}
         {!isLoading && !error && !chunk && (
           <p className={styles.popoverHint}>Full text unavailable.</p>
         )}
