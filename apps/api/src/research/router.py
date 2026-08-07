@@ -144,6 +144,7 @@ async def research_websocket(
 
 class ChatRequest(BaseModel):
     question: str
+    messages: list[dict[str, Any]] | None = None
 
 
 async def agui_event_stream(
@@ -151,6 +152,7 @@ async def agui_event_stream(
     workspace_id: uuid.UUID,
     user_id: uuid.UUID,
     session: AsyncSession,
+    history: list[dict[str, Any]] | None = None,
 ) -> Any:  # pyright: ignore[reportReturnType]  # async generator returning dicts
     """Stream AG-UI events for a research run. Bridges agent callbacks via queue."""
     run_id = uuid.uuid4()
@@ -179,6 +181,7 @@ async def agui_event_stream(
             run_id=run.id,
             session=session,
             stage_callback=on_stage,
+            history=history,
         )
 
     try:
@@ -230,7 +233,13 @@ async def research_chat(
         raise HTTPException(status_code=422, detail="Question cannot be empty.")
 
     async def event_generator():
-        async for event in agui_event_stream(question, workspace_id, user_id, session):  # pyright: ignore[reportGeneralTypeIssues]
+        async for event in agui_event_stream(
+            question,
+            workspace_id,
+            user_id,
+            session,
+            history=request.messages,
+        ):  # pyright: ignore[reportGeneralTypeIssues]
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

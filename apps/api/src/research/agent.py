@@ -194,17 +194,29 @@ async def run_agent(
     *,
     stage_callback: Any = None,
     langfuse_trace_id: str | None = None,
+    history: list[dict[str, Any]] | None = None,
 ) -> AgentResult:
     del langfuse_trace_id
+
+    messages: list[dict[str, Any]] = [{"role": "system", "content": _SYSTEM_PROMPT}]
+
+    if history:
+        for msg in history:
+            role = msg.get("role")
+            if role not in ("user", "assistant"):
+                continue
+            parts = msg.get("parts", [])
+            content = extract_text(parts)
+            if content:
+                messages.append({"role": role, "content": content})
+
+    messages.append({"role": "user", "content": question})
 
     initial_state: AgentState = {
         "run_id": str(run_id),
         "workspace_id": str(workspace_id),
         "question": question,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": question},
-        ],
+        "messages": messages,
         "citations": [],
         "answer": None,
         "iterations": 0,
@@ -236,6 +248,19 @@ async def run_agent(
     )
 
     return AgentResult(answer=answer, citations=citations, iterations=iterations)
+
+
+def extract_text(parts: list[dict[str, Any]]) -> str:
+    """Extract plain text from a TanStack AI message parts array."""
+    segments: list[str] = []
+    for part in parts:
+        if part.get("type") == "text" and part.get("content"):
+            segments.append(str(part["content"]))
+        elif part.get("type") == "tool-result" and part.get("content"):
+            content = part["content"]
+            if isinstance(content, str):
+                segments.append(content)
+    return " ".join(segments).strip()
 
 
 def _format_chunks_for_model(chunks: list[RetrievedChunk]) -> str:
