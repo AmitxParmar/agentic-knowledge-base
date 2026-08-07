@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed (Phase 3).
+Partially implemented. Phase 3 implemented Option A (custom WS transport).
+Phase 4 added Option B (AG-UI SSE endpoint, see below).
 
 ## Context
 

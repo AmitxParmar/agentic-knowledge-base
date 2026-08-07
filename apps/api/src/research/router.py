@@ -18,6 +18,7 @@ over this channel. Only the fixed stage vocabulary and the final answer.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -25,7 +26,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import logfire
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -135,6 +137,103 @@ async def research_websocket(
         except Exception:
             pass
         await ws.close()
+
+
+# ── AG-UI SSE endpoint (Option B, ADR-005) ─────────────────────────────────
+
+
+class ChatRequest(BaseModel):
+    question: str
+
+
+async def agui_event_stream(
+    question: str,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    session: AsyncSession,
+) -> Any:  # pyright: ignore[reportReturnType]  # async generator returning dicts
+    """Stream AG-UI events for a research run. Bridges agent callbacks via queue."""
+    run_id = uuid.uuid4()
+    message_id = str(run_id)
+    queue: asyncio.Queue = asyncio.Queue()
+
+    yield {"type": "RUN_STARTED", "threadId": str(run_id), "runId": str(run_id)}
+    yield {"type": "TEXT_MESSAGE_START", "messageId": message_id, "role": "assistant"}
+
+    run = ResearchRun(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        question=question,
+        status=RunStatus.running,
+    )
+    session.add(run)
+    await session.flush()
+
+    async def on_stage(stage: ResearchStage) -> None:
+        await queue.put({"type": "TEXT_MESSAGE_CONTENT", "messageId": message_id, "delta": f"{stage.value}\n"})
+
+    async def run_agent_task() -> Any:
+        return await run_agent(
+            question=question,
+            workspace_id=workspace_id,
+            run_id=run.id,
+            session=session,
+            stage_callback=on_stage,
+        )
+
+    try:
+        with logfire.span("research.run", run_id=str(run_id), question=question[:80]):
+            asyncio_task = asyncio.create_task(run_agent_task())
+
+            while not asyncio_task.done():
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=0.5)
+                    yield event
+                except TimeoutError:
+                    continue
+
+            while not queue.empty():
+                yield queue.get_nowait()
+
+            result = await asyncio_task
+            run.answer = result.answer
+            run.iteration_count = result.iterations
+            run.status = RunStatus.complete
+            run.completed_at = datetime.now(UTC)
+            await session.commit()
+
+        yield {"type": "TEXT_MESSAGE_CONTENT", "messageId": message_id, "delta": result.answer}
+        yield {"type": "TEXT_MESSAGE_END", "messageId": message_id}
+        yield {"type": "RUN_FINISHED", "threadId": str(run_id), "runId": str(run_id)}
+
+    except Exception as exc:
+        logger.exception("research run failed")
+        logfire.error("research.run.failed", error=str(exc))
+        try:
+            run.status = RunStatus.failed
+            await session.commit()
+        except Exception:
+            pass
+        yield {"type": "RUN_ERROR", "message": "An error occurred during the research run.", "code": "AGENT_ERROR"}
+
+
+@router.post("/chat")
+async def research_chat(
+    request: ChatRequest,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user_id: uuid.UUID = Depends(get_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> StreamingResponse:
+    """AG-UI SSE endpoint for research runs. Streams typed events."""
+    question = request.question.strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="Question cannot be empty.")
+
+    async def event_generator():
+        async for event in agui_event_stream(question, workspace_id, user_id, session):  # pyright: ignore[reportGeneralTypeIssues]
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 class RunSummary(BaseModel):
