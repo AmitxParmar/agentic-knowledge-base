@@ -12,11 +12,12 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import src.research.models
 import src.shared.models  # noqa: F401
+from alembic import context
 from app.settings import settings
 from src.shared.database import Base
 

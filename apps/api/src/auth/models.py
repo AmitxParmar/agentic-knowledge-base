@@ -22,7 +22,7 @@ from src.shared.database import Base
 
 if TYPE_CHECKING:
     from src.ingestion.models import Document
-    from src.research.models import ResearchRun
+    from src.research.models import ConversationThread, ResearchRun
 
 
 class User(Base):
@@ -35,7 +35,7 @@ class User(Base):
     auth_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    workspaces: Mapped[list["Workspace"]] = relationship(back_populates="owner")
+    workspaces: Mapped[list[Workspace]] = relationship(back_populates="owner")
 
 
 class Workspace(Base):
@@ -49,6 +49,7 @@ class Workspace(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    owner: Mapped["User"] = relationship(back_populates="workspaces")
-    documents: Mapped[list["Document"]] = relationship(back_populates="workspace")
-    research_runs: Mapped[list["ResearchRun"]] = relationship(back_populates="workspace")
+    owner: Mapped[User] = relationship(back_populates="workspaces")
+    documents: Mapped[list[Document]] = relationship(back_populates="workspace")
+    research_runs: Mapped[list[ResearchRun]] = relationship(back_populates="workspace")
+    conversation_threads: Mapped[list[ConversationThread]] = relationship(back_populates="workspace")

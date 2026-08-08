@@ -53,8 +53,8 @@ class ResearchRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    workspace: Mapped["Workspace"] = relationship(back_populates="research_runs")
-    citations: Mapped[list["Citation"]] = relationship(back_populates="run")
+    workspace: Mapped[Workspace] = relationship(back_populates="research_runs")
+    citations: Mapped[list[Citation]] = relationship(back_populates="run")
 
 
 class Citation(Base):
@@ -69,5 +69,27 @@ class Citation(Base):
     # Relevance score at the time of retrieval (reranker output)
     relevance_score: Mapped[float | None] = mapped_column(nullable=True)
 
-    run: Mapped["ResearchRun"] = relationship(back_populates="citations")
-    chunk: Mapped["Chunk"] = relationship(back_populates="citations")
+    run: Mapped[ResearchRun] = relationship(back_populates="citations")
+    chunk: Mapped[Chunk] = relationship(back_populates="citations")
+
+
+class ConversationThread(Base):
+    """An ordered container that groups research_runs for history navigation.
+
+    The runs themselves already persist their question/answer/citations; this
+    table adds the thread container + title. Thread membership is derived
+    client-side from the ordered list of run ids the thread stores, so the
+    existing research-run write path (the agent) is untouched.
+    """
+
+    __tablename__ = "conversation_threads"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="Untitled thread")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="conversation_threads")

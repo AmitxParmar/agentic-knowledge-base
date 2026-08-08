@@ -168,7 +168,6 @@ apps/web/
 │       │   ├── question-composer.tsx        ADD  textarea + char hint + submit
 │       │   ├── progress-stage-list.tsx      ADD  fixed-vocabulary stage timeline
 │       │   │   └── stage-pill.tsx           ADD  single stage (pending→active→complete)
-│       │   ├── answer-panel.tsx             ADD  answer text + progressive citation attach
 │       │   ├── citation-ref.tsx             ADD  superscript [n] button + hover popover
 │       │   ├── citation-panel.tsx           ADD  side sheet: source_ref, score bar, copy chunk_id
 │       │   └── empty-state.tsx              ADD  reusable empty state

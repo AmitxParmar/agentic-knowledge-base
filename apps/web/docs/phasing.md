@@ -71,8 +71,7 @@ passes.
 | 20 | `features/research/api/use-research-run.ts` (WS lifecycle → stages[], answer, error) | `features/research/api/*` |
 | 21 | `features/research/api/use-run-detail.ts` (GET /runs/{id} hydration) | `features/research/api/*` |
 | 22 | `features/research/components/question-composer.tsx` | `features/research/components/*` |
-| 23 | `features/research/components/answer-panel.tsx` (streaming answer + citation attach) | `features/research/components/*` |
-| 24 | `features/research/components/citation-ref.tsx` (`[n]` button + hover popover) | `features/research/components/*` |
+| 23 | `features/research/components/citation-ref.tsx` (`[n]` button + hover popover) | `features/research/components/*` |
 | 25 | `features/research/components/citation-panel.tsx` (side sheet / bottom sheet) | `features/research/components/*` |
 | 26 | `features/research/components/research-workspace.tsx` (layout shell) | `features/research/components/*` |
 | 27 | `features/research/components/empty-state.tsx` (reusable) | `features/research/components/*` |

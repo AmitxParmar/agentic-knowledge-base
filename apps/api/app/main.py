@@ -16,19 +16,18 @@ import logfire
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.settings import settings
-from src.ingestion.router import router as ingestion_router
-from src.observability.setup import configure as configure_observability
-from src.research.router import router as research_router
-from src.shared.database import connect as db_connect
-from src.shared.database import disconnect as db_disconnect
-from src.shared.errors import register_error_handlers
-
 # ── ORM model registration ─────────────────────────────────────────────────
 # Import the central registry so SQLAlchemy's declarative Base discovers
 # all mapped classes before any mapper is configured.
 import src.shared.models  # noqa: F401
-
+from app.settings import settings
+from src.ingestion.router import router as ingestion_router
+from src.observability.setup import configure as configure_observability
+from src.research.conversations_router import router as conversations_router
+from src.research.router import router as research_router
+from src.shared.database import connect as db_connect
+from src.shared.database import disconnect as db_disconnect
+from src.shared.errors import register_error_handlers
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
@@ -75,6 +74,7 @@ def create_app() -> FastAPI:
     # ── Routers ───────────────────────────────────────────────────────────
     app.include_router(ingestion_router, prefix="/api/ingestion", tags=["ingestion"])
     app.include_router(research_router, prefix="/api/research", tags=["research"])
+    app.include_router(conversations_router, prefix="/api/conversations", tags=["conversations"])
 
     # Health check — required for container orchestration
     @app.get("/health", include_in_schema=False)
