@@ -66,8 +66,8 @@ function PopoverContent({
   return (
     <div className={styles.popover} role="tooltip">
       <div className={styles.popoverHeader}>
-        <span className={styles.popoverIndex}>[{index}]</span>
-        <span className={styles.popoverScore}>{relevanceScore.toFixed(4)}</span>
+        <span className={styles.popoverIndex}>SRC {index}</span>
+        <data className={styles.popoverScore}>{relevanceScore.toFixed(4)}</data>
       </div>
       <p className={styles.popoverSource}>{sourceRef}</p>
 

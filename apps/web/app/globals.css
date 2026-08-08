@@ -8,22 +8,24 @@
  * Scope:      App-wide.
  */
 
-/* ── Design tokens ─────────────────────────────────────────────────────────── */
+/* ── Design tokens — Tactical Telemetry (dark) ─────────────────────────────── */
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
-  --accent: 221 83% 53%;
+  /* Substrate: deactivated CRT — never pure black */
+  --background: 0 0% 4%;        /* #0A0A0A */
+  --foreground: 0 0% 92%;       /* #EAEAEA white phosphor */
+  --panel: 0 0% 7%;             /* #121212 compartment fill */
+  --muted: 0 0% 12%;
+  --muted-foreground: 0 0% 58%;
+  --accent: 0 79% 45%;          /* #E61919 — Aviation/Hazard Red (the ONLY accent) */
   --accent-foreground: 0 0% 100%;
-  --border: 214 32% 91%;
-  --destructive: 0 84% 60%;
-  --success: 142 71% 45%;
+  --border: 0 0% 17%;           /* hairline compartment divisions */
+  --destructive: 0 79% 45%;
+  --success: 133 100% 46%;      /* #4AF626 terminal green — status dot only */
   --warning: 38 92% 50%;
-  --ring: 221 83% 53%;
+  --ring: 0 79% 50%;
 
-  --radius: 8px;
+  --radius: 0;                  /* 90° corners — mechanical rigidity */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -35,22 +37,8 @@
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 96%;
-    --muted: 217 33% 12%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 91% 60%;
-    --accent-foreground: 0 0% 100%;
-    --border: 217 33% 18%;
-    --destructive: 0 62% 50%;
-    --success: 142 71% 45%;
-    --warning: 38 92% 50%;
-    --ring: 217 91% 60%;
-  }
+  color-scheme: dark;
 }
 
 /* ── Base resets ───────────────────────────────────────────────────────────── */
@@ -80,15 +68,27 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* CRT scanlines + phosphor static — global analog degradation */
+body::after {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.14) 2px,
+      rgba(0, 0, 0, 0.14) 4px
+    ),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+}
+
 a {
   color: inherit;
   text-decoration: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
 }
 
 /* ── Typography ────────────────────────────────────────────────────────────── */

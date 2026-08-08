@@ -2,13 +2,17 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  font-size: 13px;
-  border-radius: 999px;
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   border: 1px solid hsl(var(--border));
+  border-radius: 0;
   color: hsl(var(--muted-foreground));
-  background: hsl(var(--background));
-  transition: color 200ms ease-out, border-color 200ms ease-out, background 200ms ease-out;
+  background: hsl(var(--panel));
+  transition: none;
 }
 
 .pending {
@@ -35,16 +39,16 @@
 }
 
 .icon {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
 }
 
 .active .icon {
-  animation: pulse 1500ms ease-in-out infinite;
+  animation: pulse 1000ms steps(1) infinite;
 }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  50% { opacity: 0.35; }
 }

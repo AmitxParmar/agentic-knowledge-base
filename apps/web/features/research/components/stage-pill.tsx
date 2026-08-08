@@ -42,7 +42,7 @@ export function StagePill({ stage, status }: StagePillProps) {
   return (
     <span className={cn(styles.pill, styles[status])}>
       <StageIcon status={status} />
-      {stage}
+      {stage.toUpperCase()}
     </span>
   );
 }

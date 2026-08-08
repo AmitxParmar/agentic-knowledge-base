@@ -9,7 +9,7 @@
 
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useUpload } from "../api/use-upload";
 import { useJobStatus } from "../api/use-job-status";
 import { IngestionStageTimeline } from "./ingestion-stage-timeline";
@@ -35,9 +35,11 @@ export function UploadComposer({ onIngestionComplete }: UploadComposerProps) {
   const currentStage = jobStatus.data?.stage ?? null;
   const isTerminal = currentStage === "done" || currentStage === "failed";
 
-  if (currentStage === "done" && jobStatus.data) {
-    onIngestionComplete?.(jobStatus.data.document_id);
-  }
+  useEffect(() => {
+    if (currentStage === "done" && jobStatus.data) {
+      onIngestionComplete?.(jobStatus.data.document_id);
+    }
+  }, [currentStage, jobStatus.data, onIngestionComplete]);
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null;

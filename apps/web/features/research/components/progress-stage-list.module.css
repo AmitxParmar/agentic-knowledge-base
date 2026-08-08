@@ -3,15 +3,3 @@
   flex-direction: column;
   gap: var(--space-2);
 }
-
-.label {
-  font-size: 13px;
-  font-weight: 500;
-  color: hsl(var(--muted-foreground));
-  margin-bottom: var(--space-2);
-}
-
-.empty {
-  font-size: 13px;
-  color: hsl(var(--muted-foreground));
-}
