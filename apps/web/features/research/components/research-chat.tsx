@@ -2,10 +2,12 @@
  * features/research/components/research-chat.tsx
  * ----------------------------------------------
  * Purpose:    Perplexity-style conversation thread — one Q/A row per message,
- *             inline citations in the answer, sticky composer at the bottom,
- *             right-rail history (thread binding) for multi-session continuity.
- * Dependencies: api/use-research-chat.ts, conversation-sidebar,
- *               citation-ref.tsx, conversation state
+ *             inline citations in the answer, sticky composer at the bottom.
+ *             Owns thread hydration (initialMessages) and syncs its live
+ *             message list back to the conversation store so thread switching
+ *             restores history. Renders an inline progress-stage strip while
+ *             a research run is streaming.
+ * Dependencies: api/use-research-chat.ts, citation-ref.tsx, progress-stage-list
  * Scope:      Research page conversation surface.
  */
 
@@ -14,13 +16,20 @@
 import { useEffect, useRef, useState } from "react";
 import { useResearchChat } from "../api/use-research-chat";
 import { CitationRef } from "./citation-ref";
+import { ProgressStageList } from "./progress-stage-list";
 import { groupCitations, type GroupedCitation } from "../utils/parse-citations";
 import type { Citation } from "../utils/ws-adapter";
+import type { UIMessage } from "@tanstack/ai-client";
 import styles from "./research-chat.module.css";
 
-/**
- * Split text into segments and render [n] as citation refs.
- */
+/** Canonical research stages (docs/ux.md). Order = pipeline order. */
+const RESEARCH_STAGES = [
+  "Searching documents...",
+  "Reviewing evidence...",
+  "Generating report...",
+  "Finalizing answer...",
+];
+
 function renderTextWithCitations(text: string, citations: GroupedCitation[]) {
   const parts = text.split(/(\[\d+\])/g);
   return parts.map((segment, index) => {
@@ -46,27 +55,40 @@ function renderTextWithCitations(text: string, citations: GroupedCitation[]) {
 }
 
 export function ResearchChat({
-  disabled,
   threadId,
+  initialMessages,
   citations,
+  stages,
+  runStatus,
+  disabled,
   onQuestion,
+  onMessagesChange,
 }: {
-  disabled: boolean;
   threadId: string;
+  initialMessages: UIMessage[];
   citations: Citation[];
+  stages: string[];
+  runStatus: "idle" | "connecting" | "running" | "complete" | "error";
+  disabled: boolean;
   onQuestion: (prompt: string) => void;
+  onMessagesChange: (messages: UIMessage[]) => void;
 }) {
-  const { messages, sendMessage, isLoading, error, stop, clear } = useResearchChat(threadId);
+  const { messages, sendMessage, isLoading, error, stop, clear } = useResearchChat(threadId, initialMessages);
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Group once per render — citation metadata (chunk_id/source_ref/score) is
-  // the shared source of truth for every [n] marker in the whole thread.
   const grouped = groupCitations(citations);
 
+  // Keep the scroll pinned to the newest message.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Sync the live message list to the conversation store so switching away
+  // and back restores this thread's history.
+  useEffect(() => {
+    onMessagesChange(messages);
+  }, [messages, onMessagesChange]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,6 +98,15 @@ export function ResearchChat({
     onQuestion(trimmed);
     await sendMessage(trimmed);
   }
+
+  // Map the research run's accumulated stages to pending/active/complete.
+  const stageStates = RESEARCH_STAGES.map((label, idx) => {
+    const reached = stages.indexOf(label);
+    let status: "pending" | "active" | "complete" = "pending";
+    if (reached !== -1) status = idx === stages.length - 1 && runStatus === "running" ? "active" : "complete";
+    return { stage: label, status } as const;
+  });
+  const showStages = runStatus === "running" || runStatus === "connecting";
 
   return (
     <section className={styles.chat} aria-label="Research conversation">
@@ -128,7 +159,7 @@ export function ResearchChat({
                     return null;
                   })}
 
-                  {message.role === "assistant" && isLoading && messages.length === 1 && (
+                  {message.role === "assistant" && isLoading && message === messages[messages.length - 1] && (
                     <span className={styles.typing}>
                       <span className={styles.dot} />
                       <span className={styles.dot} />
@@ -149,6 +180,12 @@ export function ResearchChat({
           )}
         </div>
 
+        {showStages && (
+          <div className={styles.progressStrip}>
+            <ProgressStageList stages={stageStates} />
+          </div>
+        )}
+
         <form className={styles.composer} onSubmit={handleSubmit}>
           <label className="visually-hidden" htmlFor="chat-input">
             Ask a question
@@ -161,11 +198,7 @@ export function ResearchChat({
             placeholder={disabled ? "Ingest a source first…" : "Ask about the evidence…"}
             disabled={disabled}
           />
-          <button
-            type="submit"
-            className={styles.sendBtn}
-            disabled={disabled || isLoading || !input.trim()}
-          >
+          <button type="submit" className={styles.sendBtn} disabled={disabled || isLoading || !input.trim()}>
             {isLoading ? "…" : ">>> RUN"}
           </button>
         </form>

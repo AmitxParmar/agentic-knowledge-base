@@ -22,20 +22,28 @@ import styles from "./research-workspace.module.css";
 export function ResearchWorkspace() {
   const [ready, setReady] = useState(false);
   const [showUpload, setShowUpload] = useState(true);
-  const { threads, activeThreadId, setActiveThread, ensureThread, removeThread, startNew } =
-    useConversations();
+  const {
+    threads,
+    activeThreadId,
+    threadMessages,
+    setActiveThread,
+    ensureThread,
+    removeThread,
+    startNew,
+    syncMessages,
+  } = useConversations();
 
   // Citation metadata flows from the research run into the chat thread so
-  // [n] markers resolve to source references. Answer text streams via SSE chat.
+  // [n] markers resolve to source references. Progress stages display inline
+  // in the active answer while a run is streaming.
   const { state: runState, startResearch } = useResearchRun();
 
   const handleQuestion = useCallback(
     (prompt: string) => {
-      const id = ensureThread(prompt);
+      ensureThread(activeThreadId, prompt);
       startResearch(prompt);
-      setActiveThread(id === "scratch" ? "scratch" : id);
     },
-    [ensureThread, setActiveThread, startResearch],
+    [activeThreadId, ensureThread, startResearch],
   );
 
   return (
@@ -58,7 +66,8 @@ export function ResearchWorkspace() {
         <div className={styles.workHeader}>
           <h1 className={styles.workTitle}>Research Terminal</h1>
           <span className={styles.workMeta}>
-            CITATIONS / {runState.citations.length} SRC / {runState.runId?.slice(0, 8).toUpperCase() ?? "—"}
+            CITATIONS / {runState.citations.length} SRC /{" "}
+            {runState.runId?.slice(0, 8).toUpperCase() ?? "—"}
           </span>
         </div>
 
@@ -88,10 +97,15 @@ export function ResearchWorkspace() {
         )}
 
         <ResearchChat
-          disabled={!ready}
-          threadId="research-main"
+          key={activeThreadId}
+          threadId={activeThreadId}
+          initialMessages={threadMessages[activeThreadId] ?? []}
           citations={runState.citations}
+          stages={runState.stages}
+          runStatus={runState.status}
+          disabled={!ready}
           onQuestion={handleQuestion}
+          onMessagesChange={(msgs) => syncMessages(activeThreadId, msgs)}
         />
       </section>
     </main>

@@ -1,8 +1,9 @@
 /**
  * features/research/components/progress-stage-list.tsx
  * ----------------------------------------------------
- * Purpose:    Fixed-vocabulary stage timeline. Maps the 4 research stages
- *             (from docs/ux.md) to pending/active/complete states.
+ * Purpose:    Fixed-vocabulary stage timeline. Renders research stages as
+ *             pending/active/complete — the only progress vocabulary allowed
+ *             on the client (docs/ux.md).
  * Dependencies: stage-pill.tsx, progress-stage-list.module.css
  * Scope:      Research run progress display.
  */
@@ -10,33 +11,20 @@
 import { StagePill } from "./stage-pill";
 import styles from "./progress-stage-list.module.css";
 
-const STAGES = [
-  "Searching documents...",
-  "Reviewing evidence...",
-  "Generating report...",
-  "Finalizing answer...",
-];
+type StageStatus = "pending" | "active" | "complete";
 
 interface ProgressStageListProps {
-  completedStages: string[];
-  currentStage: string | null;
+  stages: Array<{ stage: string; status: StageStatus }>;
 }
 
-export function ProgressStageList({ completedStages, currentStage }: ProgressStageListProps) {
+export function ProgressStageList({ stages }: ProgressStageListProps) {
   return (
     <div>
-      <p className={styles.label}>Progress</p>
+      <p className={styles.label}>PROGRESS</p>
       <div className={styles.list} role="log" aria-live="polite" aria-label="Research progress">
-        {STAGES.map((stage) => {
-          const isComplete = completedStages.includes(stage);
-          const isCurrent = stage === currentStage;
-
-          let status: "pending" | "active" | "complete" = "pending";
-          if (isComplete) status = "complete";
-          else if (isCurrent) status = "active";
-
-          return <StagePill key={stage} stage={stage} status={status} />;
-        })}
+        {stages.map((s) => (
+          <StagePill key={s.stage} stage={s.stage} status={s.status} />
+        ))}
       </div>
     </div>
   );
