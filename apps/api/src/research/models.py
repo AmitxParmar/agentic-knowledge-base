@@ -43,6 +43,7 @@ class ResearchRun(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    thread_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("conversation_threads.id"), nullable=True)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[RunStatus] = mapped_column(
@@ -54,6 +55,7 @@ class ResearchRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     workspace: Mapped[Workspace] = relationship(back_populates="research_runs")
+    thread: Mapped[ConversationThread | None] = relationship(back_populates="research_runs")
     citations: Mapped[list[Citation]] = relationship(back_populates="run")
 
 
@@ -77,9 +79,8 @@ class ConversationThread(Base):
     """An ordered container that groups research_runs for history navigation.
 
     The runs themselves already persist their question/answer/citations; this
-    table adds the thread container + title. Thread membership is derived
-    client-side from the ordered list of run ids the thread stores, so the
-    existing research-run write path (the agent) is untouched.
+    table adds the thread container + title. A research run links to its thread
+    via thread_id, so thread history can be reconstructed server-side.
     """
 
     __tablename__ = "conversation_threads"
@@ -93,3 +94,4 @@ class ConversationThread(Base):
     )
 
     workspace: Mapped[Workspace] = relationship(back_populates="conversation_threads")
+    research_runs: Mapped[list[ResearchRun]] = relationship(back_populates="thread")

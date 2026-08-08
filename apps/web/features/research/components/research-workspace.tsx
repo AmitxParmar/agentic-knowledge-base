@@ -31,19 +31,21 @@ export function ResearchWorkspace() {
     removeThread,
     startNew,
     syncMessages,
+    linkRun,
   } = useConversations();
 
   // Citation metadata flows from the research run into the chat thread so
   // [n] markers resolve to source references. Progress stages display inline
-  // in the active answer while a run is streaming.
+  // in the active answer while a run is streaming. On completion, the run is
+  // linked to the active thread for server-side history.
   const { state: runState, startResearch } = useResearchRun();
 
   const handleQuestion = useCallback(
     (prompt: string) => {
       ensureThread(activeThreadId, prompt);
-      startResearch(prompt);
+      startResearch(prompt, (runId) => linkRun(activeThreadId, runId));
     },
-    [activeThreadId, ensureThread, startResearch],
+    [activeThreadId, ensureThread, startResearch, linkRun],
   );
 
   return (

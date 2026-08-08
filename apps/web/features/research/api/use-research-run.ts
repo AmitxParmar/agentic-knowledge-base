@@ -42,7 +42,7 @@ export function useResearchRun() {
   const queryClient = useQueryClient();
 
   const startResearch = useCallback(
-    (question: string) => {
+    (question: string, onRunComplete?: (runId: string) => void) => {
       setState({ ...INITIAL_STATE, status: "connecting" });
 
       startRun(question, {
@@ -61,6 +61,7 @@ export function useResearchRun() {
             citations,
             runId,
           }));
+          onRunComplete?.(runId);
           queryClient.setQueryData(["run", runId], {
             run_id: runId,
             question,

@@ -1,13 +1,13 @@
 /**
  * features/research/api/use-conversations.ts
  * ------------------------------------------
- * Purpose:    Conversation thread store. Thread metadata (id/title) is now
+ * Purpose:    Conversation thread store. Thread metadata (id/title) is
  *             server-backed via /api/conversations; the live message list is
  *             still held in memory keyed by threadId. On mount, the store
  *             fetches the workspace's threads; creating/renaming/deleting hits
  *             the API. The per-thread message shape matches TanStack AI's
  *             UIMessage so thread-switching restores history.
- * Dependencies: react, /api/conversations
+ * Dependencies: react, conversation-client
  * Scope:      Research chat conversation history.
  */
 
@@ -15,7 +15,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "@tanstack/ai-client";
-import { API_BASE_URL } from "@/lib/env";
+import {
+  deleteThread,
+  linkRun as linkRunApi,
+  listThreads,
+  type ThreadSummary,
+} from "./conversation-client";
 
 export interface ConversationMeta {
   id: string;
@@ -24,24 +29,7 @@ export interface ConversationMeta {
   messageCount: number;
 }
 
-interface ThreadResponse {
-  id: string;
-  title: string;
-  run_count: number;
-  created_at: string;
-  updated_at: string;
-}
-
 const INITIAL_ID = "scratch";
-
-async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
-  });
-  if (!res.ok) throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status}`);
-  return (await res.json()) as T;
-}
 
 export function useConversations() {
   const [meta, setMeta] = useState<Record<string, ConversationMeta>>({});
@@ -60,19 +48,10 @@ export function useConversations() {
   // Hydrate threads from the server on first mount.
   useEffect(() => {
     let cancelled = false;
-    fetchJSON<{ threads: ThreadResponse[] }>("/api/conversations")
+    listThreads()
       .then((data) => {
         if (cancelled) return;
-        const next: Record<string, ConversationMeta> = {};
-        for (const t of data.threads) {
-          next[t.id] = {
-            id: t.id,
-            title: t.title,
-            updatedAt: new Date(t.updated_at),
-            messageCount: t.run_count,
-          };
-        }
-        setMeta(next);
+        setMeta(toMetaRecord(data.threads));
       })
       .catch((err) => console.warn("[conversations] load failed:", err))
       .finally(() => {
@@ -84,18 +63,7 @@ export function useConversations() {
   }, []);
 
   const refresh = useCallback(() => {
-    return fetchJSON<{ threads: ThreadResponse[] }>("/api/conversations").then((data) => {
-      const next: Record<string, ConversationMeta> = {};
-      for (const t of data.threads) {
-        next[t.id] = {
-          id: t.id,
-          title: t.title,
-          updatedAt: new Date(t.updated_at),
-          messageCount: t.run_count,
-        };
-      }
-      setMeta(next);
-    });
+    return listThreads().then((data) => setMeta(toMetaRecord(data.threads)));
   }, []);
 
   /** Stamp a title on the active thread locally; the first question wins. */
@@ -124,9 +92,7 @@ export function useConversations() {
 
   const removeThread = useCallback(
     (id: string) => {
-      fetchJSON<void>(`/api/conversations/${id}`, { method: "DELETE" }).catch((err) =>
-        console.warn("[conversations] delete failed:", err),
-      );
+      deleteThread(id).catch((err) => console.warn("[conversations] delete failed:", err));
       setMeta((prev) => {
         const next = { ...prev };
         delete next[id];
@@ -145,6 +111,21 @@ export function useConversations() {
   const setActive = useCallback((id: string) => setActiveId(id), []);
   const startNew = useCallback(() => setActiveId(INITIAL_ID), []);
 
+  const linkRun = useCallback(
+    (threadId: string, runId: string) => {
+      // Only server-backed threads (real UUIDs) can be linked; skip scratch.
+      if (threadId === INITIAL_ID) return;
+      linkRunApi(threadId, runId)
+        .then((updated) =>
+          setMeta((prev) =>
+            prev[threadId] ? { ...prev, [threadId]: { ...prev[threadId], title: updated.title } } : prev,
+          ),
+        )
+        .catch((err) => console.warn("[conversations] link run failed:", err));
+    },
+    [],
+  );
+
   return {
     threads,
     activeThreadId: activeIdResolved,
@@ -156,5 +137,19 @@ export function useConversations() {
     startNew,
     syncMessages,
     refresh,
+    linkRun,
   };
+}
+
+function toMetaRecord(threads: ThreadSummary[]): Record<string, ConversationMeta> {
+  const next: Record<string, ConversationMeta> = {};
+  for (const t of threads) {
+    next[t.id] = {
+      id: t.id,
+      title: t.title,
+      updatedAt: new Date(t.updated_at),
+      messageCount: t.run_count,
+    };
+  }
+  return next;
 }

@@ -93,14 +93,14 @@ async def list_threads(
     )
     threads = result.scalars().all()
 
+    run_counts = await _run_counts(session, [t.id for t in threads])
+
     return ThreadList(
         threads=[
             ThreadSummary(
                 id=str(t.id),
                 title=t.title,
-                # Server does not yet track thread→run membership; the client
-                # holds the authoritative per-thread run list and overrides this.
-                run_count=0,
+                run_count=run_counts.get(t.id, 0),
                 created_at=t.created_at.isoformat(),
                 updated_at=t.updated_at.isoformat(),
             )
@@ -145,12 +145,9 @@ async def get_thread(
 
     runs = await session.execute(
         select(ResearchRun)
-        .where(ResearchRun.workspace_id == workspace_id)
+        .where(ResearchRun.thread_id == thread_id)
         .order_by(ResearchRun.created_at.asc())
     )
-    # Thread membership is derived client-side; return all workspace runs so
-    # the client can filter to the thread's run ids. The client already holds
-    # the ordered run-id list for this thread.
     run_rows = runs.scalars().all()
     return ThreadWithRuns(
         thread=_thread_detail(thread),
@@ -205,6 +202,46 @@ async def delete_thread(
     await session.commit()
 
 
+class LinkRunRequest(BaseModel):
+    run_id: uuid.UUID
+
+
+@router.post("/{thread_id}/runs", response_model=ThreadDetail)
+async def link_run_to_thread(
+    thread_id: uuid.UUID,
+    body: LinkRunRequest,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    session: AsyncSession = Depends(get_session),
+) -> ThreadDetail:
+    """Associate a completed research run with a thread (for history)."""
+    thread = (
+        await session.execute(
+            select(ConversationThread).where(
+                ConversationThread.id == thread_id,
+                ConversationThread.workspace_id == workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if thread is None:
+        raise NotFoundError(f"Thread {thread_id} not found")
+
+    run = (
+        await session.execute(
+            select(ResearchRun).where(
+                ResearchRun.id == body.run_id,
+                ResearchRun.workspace_id == workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        raise NotFoundError(f"Run {body.run_id} not found in workspace")
+
+    run.thread_id = thread_id
+    await session.commit()
+    await session.refresh(thread)
+    return _thread_detail(thread)
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -215,6 +252,19 @@ def _thread_detail(thread: ConversationThread) -> ThreadDetail:
         created_at=thread.created_at.isoformat(),
         updated_at=thread.updated_at.isoformat(),
     )
+
+
+async def _run_counts(session: AsyncSession, thread_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+    from sqlalchemy import func
+
+    if not thread_ids:
+        return {}
+    result = await session.execute(
+        select(ResearchRun.thread_id, func.count(ResearchRun.id))
+        .where(ResearchRun.thread_id.in_(thread_ids))
+        .group_by(ResearchRun.thread_id)
+    )
+    return {row[0]: row[1] for row in result.all()}
 
 
 async def _run_out(session: AsyncSession, run: ResearchRun) -> RunOut:

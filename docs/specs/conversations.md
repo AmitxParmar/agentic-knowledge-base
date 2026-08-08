@@ -28,10 +28,11 @@ Phase 2 per `schema.md`).
 | `created_at` | Creation timestamp |
 | `updated_at` | Last activity timestamp |
 
-A thread's runs are the `research_runs` rows ordered by `created_at`. We do
-not add a `thread_id` FK to `research_runs` in MVP — thread membership is
-derived client-side from the ordered list of run ids the thread stores. This
-keeps the existing research-run write path (the agent) untouched.
+A thread's runs are the `research_runs` rows where `thread_id` points at the
+thread, ordered by `created_at`. When a research run completes, the client
+links it to the active thread via `POST /api/conversations/{id}/runs`, so the
+server can reconstruct thread history without changing the agent's run-write
+path.
 
 ## API
 All endpoints are scoped to the caller's workspace (via `get_workspace_id`).
@@ -43,6 +44,7 @@ All endpoints are scoped to the caller's workspace (via `get_workspace_id`).
 | `GET` | `/api/conversations/{id}` | Get one thread + its runs (question/answer/citations) |
 | `PATCH` | `/api/conversations/{id}` | Rename a thread |
 | `DELETE` | `/api/conversations/{id}` | Delete a thread |
+| `POST` | `/api/conversations/{id}/runs` | Link a completed research run to a thread |
 
 ### `GET /api/conversations` response
 ```json
