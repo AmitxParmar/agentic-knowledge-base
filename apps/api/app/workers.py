@@ -58,14 +58,19 @@ class WorkerSettings:
     # Job functions to register (arq expects callables)
     # run_ingestion_job has signature: (ctx: dict[str, Any], *, document_id: str) -> None
     functions: ClassVar = [run_ingestion_job]
-    
+
     # Lifecycle hooks
     on_startup: ClassVar = startup
     on_shutdown: ClassVar = shutdown
-    
+
     # Redis connection for job queue
     redis_settings: ClassVar[RedisSettings] = RedisSettings.from_dsn(settings.REDIS_URL)
-    
+
     # Resource limits (tune based on actual load data)
     max_jobs: int = 4          # max concurrent jobs per worker
     job_timeout: int = 600     # 10min ceiling per ingestion job
+
+    # Retry policy — a transient provider failure no longer permanently fails
+    # the document. The job is attempted up to max_tries times (initial + 2
+    # retries) before the row lands in `failed`.
+    max_tries: int = 3

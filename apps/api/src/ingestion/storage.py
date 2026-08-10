@@ -13,6 +13,7 @@ Scope:      Two operations: store() raw bytes, and open() a source for reading.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import tempfile
 import uuid
@@ -40,16 +41,27 @@ def _r2_client() -> Any:
     )
 
 
-def store(fileobj: Any, *, workspace_id: uuid.UUID, document_id: uuid.UUID, filename: str) -> str:
+def store(
+    data: bytes | Any,
+    *,
+    workspace_id: uuid.UUID,
+    document_id: uuid.UUID,
+    filename: str,
+) -> str:
     """
     Persist an uploaded file, returning a storage reference (R2 key or local path).
 
-    Callers store the returned reference in documents.storage_path and hand it
-    back to open() later — they never construct paths themselves.
+    Accepts either raw bytes or a file-like object. Callers that already have
+    the bytes (e.g. after hashing for dedup) pass them directly; the storage
+    layer never needs to re-read the stream.
     """
     if settings.r2_enabled:
         key = f"{_PREFIX}/{workspace_id}/{document_id}_{filename}"
-        _r2_client().upload_fileobj(fileobj, settings.R2_BUCKET, key)
+        if isinstance(data, bytes):
+            from io import BytesIO
+            _r2_client().upload_fileobj(BytesIO(data), settings.R2_BUCKET, key)
+        else:
+            _r2_client().upload_fileobj(data, settings.R2_BUCKET, key)
         logger.info("storage.store: R2 key=%s", key)
         return key
 
@@ -57,7 +69,10 @@ def store(fileobj: Any, *, workspace_id: uuid.UUID, document_id: uuid.UUID, file
     dest = Path(settings.UPLOAD_DIR) / str(workspace_id) / f"{document_id}_{filename}"
     dest.parent.mkdir(parents=True, exist_ok=True)
     with dest.open("wb") as buffer:
-        shutil.copyfileobj(fileobj, buffer)
+        if isinstance(data, bytes):
+            buffer.write(data)
+        else:
+            shutil.copyfileobj(data, buffer)
     logger.info("storage.store: local path=%s", dest)
     return str(dest)
 
@@ -70,7 +85,9 @@ def open_ref(storage_ref: str) -> Path:
     the returned Path); local references are returned as-is.
     """
     if settings.r2_enabled and storage_ref.startswith(f"{_PREFIX}/"):
-        tmp = Path(tempfile.mkstemp(suffix=Path(storage_ref).suffix or ".tmp")[1])
+        fd, tmp_path = tempfile.mkstemp(suffix=Path(storage_ref).suffix or ".tmp")
+        os.close(fd)
+        tmp = Path(tmp_path)
         _r2_client().download_file(settings.R2_BUCKET, storage_ref, str(tmp))
         logger.info("storage.open: R2 downloaded to temp=%s", tmp)
         return tmp

@@ -53,6 +53,9 @@ class Document(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     source_type: Mapped[SourceType] = mapped_column(Enum(SourceType), nullable=False)
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
+    # SHA-256 of the raw uploaded bytes — basis for dedup + idempotency. NULL for
+    # legacy rows and for source types whose content isn't a single file blob.
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # git URL for repos, filesystem path for uploads
     source_ref: Mapped[str] = mapped_column(Text, nullable=False)
     # Path to raw file on disk (worker reads from here)
