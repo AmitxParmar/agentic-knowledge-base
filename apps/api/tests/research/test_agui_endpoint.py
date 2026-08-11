@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from src.research.router import ChatRequest
 
 
 def make_client() -> TestClient:
@@ -25,6 +26,22 @@ def test_agui_chat_returns_sse_headers() -> None:
     response = client.post("/api/research/chat", json={"question": "test"})
     assert response.status_code == 200
     assert "text/event-stream" in response.headers.get("content-type", "")
+
+
+def test_agui_chat_accepts_thread_id() -> None:
+    """The AG-UI envelope's threadId must map to ChatRequest.thread_id.
+
+    Model-level test: hitting the endpoint a second time in the same pytest
+    session would reuse a pooled asyncpg connection across TestClient's
+    per-request event loops (a harness limitation, not app code).
+    """
+    request = ChatRequest(threadId="thread-123", question="test")
+    assert request.thread_id == "thread-123"
+
+
+def test_agui_chat_accepts_thread_id_via_field_name() -> None:
+    request = ChatRequest(thread_id="thread-456", question="test")
+    assert request.thread_id == "thread-456"
 
 
 def test_agui_chat_rejects_empty_question() -> None:

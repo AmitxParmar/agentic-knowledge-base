@@ -30,6 +30,22 @@ from app.settings import settings
 logger = logging.getLogger(__name__)
 
 
+# ── Typed errors ─────────────────────────────────────────────────────────────
+# Callers (routers, agents) classify failures by these types to surface
+# accurate, user-facing error codes instead of a single generic AGENT_ERROR.
+
+class ModelGatewayError(Exception):
+    """Base class for every model gateway failure."""
+
+
+class ProviderError(ModelGatewayError):
+    """All configured model providers failed (keys, outage, network)."""
+
+
+class RateLimitError(ModelGatewayError):
+    """A provider is rate limiting the request (HTTP 429 or equivalent)."""
+
+
 # ── LiteLLM response shape ──────────────────────────────────────────────────
 # litellm.acompletion returns a union of streamed/non-streamed OpenAI-compatible
 # responses; its narrow stubs don't expose attributes off a single union member.
@@ -77,9 +93,11 @@ class GatewayResponse:
     Unified response from every model_gateway call.
     - complete() populates content only; tool_calls is None.
     - complete_with_tools() may populate both.
+    - usage carries the provider's token counts for cost metering.
     """
     content: str | None
     tool_calls: list[ToolCall] | None = None
+    usage: _ResponseUsage | None = None
 
 
 # ── LiteLLM configuration ──────────────────────────────────────────────────
@@ -164,27 +182,33 @@ async def _call_llm(
             logger.exception("model_gateway: LiteLLM call failed")
             logfire.error("model_gateway.call.failed", model=primary_model, error=str(exc))
             # All providers have been exhausted by LiteLLM's controller.
-            raise RuntimeError(
-                "Model Gateway: all providers exhausted. Check API keys and provider status."
-            ) from exc
+            raise _classify_provider_error(exc) from exc
         resp = cast(_CompletionResponse, raw)
 
     # Parse the LiteLLM (OpenAI-compatible) response into our lightweight types.
     msg = resp.choices[0].message
     parsed_calls: list[ToolCall] | None = None
     if msg.tool_calls:
-        parsed_calls = [
-            ToolCall(
-                id=tc.id,
-                function=ToolFunction(
-                    name=tc.function.name,
-                    # Parse JSON arguments into a dict — callers get a ready-to-use
-                    # dict rather than a raw JSON string.
-                    arguments=json.loads(tc.function.arguments),
-                ),
+        parsed_calls = []
+        for tc in msg.tool_calls:
+            try:
+                arguments = json.loads(tc.function.arguments)
+            except (json.JSONDecodeError, TypeError):
+                # Malformed tool-call arguments would otherwise abort the whole
+                # run. Skip the broken call; the agent loop can retry/answer.
+                logger.warning("model_gateway: skipping tool call with malformed JSON args (%s)", tc.function.name)
+                continue
+            parsed_calls.append(
+                ToolCall(
+                    id=tc.id,
+                    function=ToolFunction(
+                        name=tc.function.name,
+                        # Parse JSON arguments into a dict — callers get a ready-to-use
+                        # dict rather than a raw JSON string.
+                        arguments=arguments,
+                    ),
+                )
             )
-            for tc in msg.tool_calls
-        ]
 
     logfire.info(
         "model_gateway.call.ok",
@@ -193,7 +217,21 @@ async def _call_llm(
         tool_calls=len(parsed_calls) if parsed_calls else 0,
     )
 
-    return GatewayResponse(content=msg.content, tool_calls=parsed_calls)
+    return GatewayResponse(content=msg.content, tool_calls=parsed_calls, usage=resp.usage)
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    """Heuristic for rate-limit failures across providers."""
+    status = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
+    text = str(exc).lower()
+    return status == 429 or "429" in text or "rate limit" in text or "rate_limit" in text
+
+
+def _classify_provider_error(exc: Exception) -> ModelGatewayError:
+    """Map a raw provider exception to a typed, user-safe gateway error."""
+    if _is_rate_limit(exc):
+        return RateLimitError("Model provider is rate limited. Please wait a moment and try again.")
+    return ProviderError("Model providers are unavailable. Check provider status and try again.")
 
 
 # ── Public interface ──────────────────────────────────────────────────────────

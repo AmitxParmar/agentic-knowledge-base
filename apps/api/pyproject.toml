@@ -8,6 +8,9 @@ dependencies = [
     "fastapi[standard]>=0.115",
     "uvicorn[standard]>=0.30",
     # Orchestration (ADR-001)
+    # langgraph-checkpoint-postgres excluded: it only ships stub methods for the
+    # pinned langgraph 1.2.x — a minimal asyncpg checkpointer lives in
+    # src/research/checkpoint.py instead.
     "langgraph>=0.2",
     # Multi-provider LLM routing — Model Gateway implementation (ADR-003)
     # LiteLLM handles provider routing, retries, and fallback (Groq → OpenRouter).

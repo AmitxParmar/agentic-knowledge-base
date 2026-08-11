@@ -17,12 +17,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.ingestion.models import Chunk, Document
 from src.retrieval.embedder import embed_query, rerank
 from src.retrieval.vector_index import VectorSearchResult, vector_search
-from src.shared.model_gateway import complete
+from src.shared.model_gateway import ModelGatewayError, complete
 
 logger = logging.getLogger(__name__)
 
 _CANDIDATE_POOL = 40
 _TOP_K_FINAL = 8
+
+
+class RetrievalError(Exception):
+    """Internal retrieval pipeline failure (not a model-provider error)."""
 
 
 @dataclass
@@ -41,15 +45,23 @@ async def retrieve(
     *,
     top_k: int = _TOP_K_FINAL,
 ) -> list[RetrievedChunk]:
-    with logfire.span("retrieval.pipeline", workspace_id=str(workspace_id)):
-        expanded = await _hyde_expand(question)
-        candidates = await _hybrid_search(expanded, workspace_id, session, pool=_CANDIDATE_POOL)
-        if not candidates:
-            logfire.info("retrieval.no_candidates", workspace_id=str(workspace_id))
-            return []
+    try:
+        with logfire.span("retrieval.pipeline", workspace_id=str(workspace_id)):
+            expanded = await _hyde_expand(question)
+            candidates = await _hybrid_search(expanded, workspace_id, session, pool=_CANDIDATE_POOL)
+            if not candidates:
+                logfire.info("retrieval.no_candidates", workspace_id=str(workspace_id))
+                return []
 
-        ranked = await _rerank_candidates(question, candidates)
-        return ranked[:top_k]
+            ranked = await _rerank_candidates(question, candidates)
+            return ranked[:top_k]
+    except Exception as exc:
+        # Model-provider failures bubble up as typed gateway errors so routers
+        # can map them to PROVIDER_ERROR / RATE_LIMIT. Everything else is an
+        # internal retrieval failure.
+        if isinstance(exc, ModelGatewayError):
+            raise
+        raise RetrievalError(f"Retrieval pipeline failed: {exc}") from exc
 
 
 async def _hyde_expand(question: str) -> str:

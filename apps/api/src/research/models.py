@@ -51,6 +51,9 @@ class ResearchRun(Base):
     )
     # Number of retrieval calls made (for the iteration bound check)
     iteration_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Total model tokens consumed across all LLM calls in this run — the input
+    # for per-run cost metering (Cost Metering gap in the architecture review).
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

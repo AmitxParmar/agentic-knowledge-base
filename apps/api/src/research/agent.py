@@ -13,9 +13,11 @@ from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
 import logfire
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph  # type: ignore[import-untyped]
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.research.checkpoint import get_saver
 from src.research.models import Citation
 from src.retrieval.pipeline import RetrievedChunk, retrieve
 from src.shared.model_gateway import complete_with_tools
@@ -34,8 +36,7 @@ class AgentState(TypedDict):
     citations: list[dict[str, Any]]
     answer: str | None
     iterations: int
-    _stage_callback: Any
-    _session: Any
+    tokens_used: int
 
 
 _RETRIEVAL_TOOL: dict[str, Any] = {
@@ -68,8 +69,10 @@ Rules:
 """
 
 
-async def _researcher_node(state: AgentState) -> dict[str, Any]:
-    callback = state.get("_stage_callback")
+async def _researcher_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    configurable = config.get("configurable") or {}
+    session: AsyncSession = configurable["_session"]
+    callback = configurable.get("_stage_callback")
 
     if state["iterations"] >= MAX_ITERATIONS:
         final_msg = await complete_with_tools(
@@ -90,6 +93,7 @@ async def _researcher_node(state: AgentState) -> dict[str, Any]:
         return {
             "answer": final_msg.content or "Insufficient evidence to answer.",
             "messages": state["messages"],
+            "tokens_used": state["tokens_used"] + _msg_tokens(final_msg),
         }
 
     response = await complete_with_tools(
@@ -103,12 +107,12 @@ async def _researcher_node(state: AgentState) -> dict[str, Any]:
         return {
             "answer": response.content or "",
             "messages": state["messages"] + [{"role": "assistant", "content": response.content or ""}],
+            "tokens_used": state["tokens_used"] + _msg_tokens(response),
         }
 
     if callback:
         await callback(ResearchStage.SEARCHING)
 
-    session: AsyncSession = state["_session"]
     workspace_id = uuid.UUID(state["workspace_id"])
     new_citations: list[dict[str, Any]] = []
     tool_results: list[dict[str, Any]] = []
@@ -157,7 +161,13 @@ async def _researcher_node(state: AgentState) -> dict[str, Any]:
         + tool_results,
         "citations": state["citations"] + new_citations,
         "iterations": state["iterations"] + 1,
+        "tokens_used": state["tokens_used"] + _msg_tokens(response),
     }
+
+
+def _msg_tokens(response: Any) -> int:
+    usage = getattr(response, "usage", None)
+    return getattr(usage, "total_tokens", 0) or 0
 
 
 def _should_continue(state: AgentState) -> str:
@@ -168,15 +178,12 @@ def _should_continue(state: AgentState) -> str:
     return "researcher"
 
 
-def _build_graph() -> Any:
+def _build_graph(checkpointer: Any = None) -> Any:
     builder = StateGraph(AgentState)
     builder.add_node("researcher", _researcher_node)
     builder.set_entry_point("researcher")
     builder.add_conditional_edges("researcher", _should_continue, {"researcher": "researcher", END: END})
-    return builder.compile()
-
-
-_graph = _build_graph()
+    return builder.compile(checkpointer=checkpointer)
 
 
 @dataclass
@@ -184,6 +191,47 @@ class AgentResult:
     answer: str
     citations: list[dict[str, Any]] = field(default_factory=list)
     iterations: int = 0
+    tokens_used: int = 0
+
+
+_saver = None
+_graph: Any = None
+
+
+async def _get_saver() -> Any:
+    """Lazily initialize the async Postgres checkpointer.
+
+    Returns None (run without checkpointing) if the saver can't be created, so
+    the worker stays usable where the DB/schema is unavailable. Initialized
+    once and reused across all runs in the worker's lifetime.
+    """
+    global _saver
+    if _saver is not None:
+        return _saver
+    try:
+        _saver = await get_saver()
+    except Exception:
+        logger.warning(
+            "research: checkpointing disabled (could not init saver)",
+            exc_info=True,
+        )
+        _saver = False
+    return _saver if _saver else None
+
+
+async def _get_graph() -> Any:
+    """Build the compiled graph on first use, bound to the (optional) saver.
+
+    Compilation happens once and is cached. Doing it here — instead of at
+    module import — lets the async saver initialize first, so the graph can be
+    bound to a real checkpointer when one is available.
+    """
+    global _graph
+    if _graph is not None:
+        return _graph
+    saver = await _get_saver()
+    _graph = _build_graph(checkpointer=saver)
+    return _graph
 
 
 async def run_agent(
@@ -220,12 +268,21 @@ async def run_agent(
         "citations": [],
         "answer": None,
         "iterations": 0,
-        "_stage_callback": stage_callback,
-        "_session": session,
+        "tokens_used": 0,
     }
 
+    run_config = RunnableConfig(
+        configurable={
+            "_session": session,
+            "_stage_callback": stage_callback,
+            "thread_id": str(run_id),
+        },
+    )
+
+    graph = await _get_graph()
+
     with logfire.span("research_agent.run", run_id=str(run_id), question=question[:80]):
-        final_state = await _graph.ainvoke(initial_state)
+        final_state = await graph.ainvoke(initial_state, config=run_config)
 
     if stage_callback:
         await stage_callback(ResearchStage.GENERATING)
@@ -233,6 +290,7 @@ async def run_agent(
     answer = final_state.get("answer") or "I was unable to find sufficient evidence to answer this question."
     citations = final_state.get("citations", [])
     iterations = final_state.get("iterations", 0)
+    tokens_used = final_state.get("tokens_used", 0)
 
     await _persist_citations(session, run_id, citations)
 
@@ -245,9 +303,15 @@ async def run_agent(
         answer_len=len(answer),
         citations=len(citations),
         iterations=iterations,
+        tokens_used=tokens_used,
     )
 
-    return AgentResult(answer=answer, citations=citations, iterations=iterations)
+    return AgentResult(
+        answer=answer,
+        citations=citations,
+        iterations=iterations,
+        tokens_used=tokens_used,
+    )
 
 
 def extract_text(parts: list[dict[str, Any]]) -> str:

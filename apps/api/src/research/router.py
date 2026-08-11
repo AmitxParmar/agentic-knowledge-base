@@ -21,25 +21,52 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
 
 import logfire
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.stub import get_user_id, get_workspace_id
 from src.research.agent import run_agent
 from src.research.models import ResearchRun, RunStatus
+from src.retrieval.pipeline import RetrievalError
 from src.shared.database import get_session
+from src.shared.model_gateway import ProviderError, RateLimitError
 from src.shared.progress import ResearchStage, emit, emit_done, emit_error
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+# ── Error codes (structured, user-facing) ────────────────────────────────────
+
+ERROR_CODES: dict[str, str] = {
+    "RATE_LIMIT": "The model provider is rate limited. Please wait a moment and try again.",
+    "PROVIDER_ERROR": "The model provider is unavailable. Please check provider status and try again.",
+    "RETRIEVAL_ERROR": "An error occurred while searching the documents. Please try again.",
+    "TOOL_PARSE_ERROR": "The model produced a malformed tool call. Please try again.",
+    "AGENT_ERROR": "An error occurred during the research run.",
+}
+
+
+def _error_code(exc: Exception) -> str:
+    if isinstance(exc, RateLimitError):
+        return "RATE_LIMIT"
+    if isinstance(exc, ProviderError):
+        return "PROVIDER_ERROR"
+    if isinstance(exc, RetrievalError):
+        return "RETRIEVAL_ERROR"
+    if isinstance(exc, json.JSONDecodeError):
+        return "TOOL_PARSE_ERROR"
+    return "AGENT_ERROR"
 
 
 @router.websocket("/ws")
@@ -95,6 +122,7 @@ async def research_websocket(
             # Update run with final answer
             run.answer = result.answer
             run.iteration_count = result.iterations
+            run.token_count = result.tokens_used
             run.status = RunStatus.complete
             run.completed_at = datetime.now(UTC)
             await session.commit()
@@ -143,8 +171,31 @@ async def research_websocket(
 
 
 class ChatRequest(BaseModel):
-    question: str
+    model_config = ConfigDict(populate_by_name=True)
+
+    question: str | None = None
     messages: list[dict[str, Any]] | None = None
+    thread_id: str | None = Field(default=None, alias="threadId")
+
+
+# One lock per conversation so a thread can't start a second run while the
+# first is still streaming (client guard + server lock = defense in depth).
+# Keyed by (event-loop id, thread id): asyncio.Lock binds to the loop that
+# first awaits it, and TestClient creates a fresh loop per request, so a lock
+# cached across loops would raise "bound to a different event loop". Production
+# runs a single loop per worker, where this serializes per thread as intended.
+_conversation_locks: dict[tuple[int, str], asyncio.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def _get_conversation_lock(thread_id: str) -> asyncio.Lock:
+    with _locks_guard:
+        key = (id(asyncio.get_running_loop()), thread_id)
+        lock = _conversation_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _conversation_locks[key] = lock
+        return lock
 
 
 async def agui_event_stream(
@@ -153,7 +204,7 @@ async def agui_event_stream(
     user_id: uuid.UUID,
     session: AsyncSession,
     history: list[dict[str, Any]] | None = None,
-) -> Any:  # pyright: ignore[reportReturnType]  # async generator returning dicts
+) -> AsyncGenerator[dict[str, Any], None]:
     """Stream AG-UI events for a research run. Bridges agent callbacks via queue."""
     run_id = uuid.uuid4()
     message_id = str(run_id)
@@ -172,7 +223,10 @@ async def agui_event_stream(
     await session.flush()
 
     async def on_stage(stage: ResearchStage) -> None:
-        await queue.put({"type": "TEXT_MESSAGE_CONTENT", "messageId": message_id, "delta": f"{stage.value}\n"})
+        # Progress stages travel as AG-UI CUSTOM events (name/value), not text
+        # deltas, so they render in the progress strip instead of inside the
+        # answer bubble.
+        await queue.put({"type": "CUSTOM", "name": "stage", "value": {"stage": stage.value}})
 
     async def run_agent_task() -> Any:
         return await run_agent(
@@ -201,10 +255,28 @@ async def agui_event_stream(
             result = await asyncio_task
             run.answer = result.answer
             run.iteration_count = result.iterations
+            run.token_count = result.tokens_used
             run.status = RunStatus.complete
             run.completed_at = datetime.now(UTC)
             await session.commit()
 
+        # Citations carry source_ref + relevance_score for the UI to resolve
+        # the [n] markers in the answer (ux.md citation display requirement).
+        yield {
+            "type": "CUSTOM",
+            "name": "citations",
+            "value": {
+                "run_id": str(run.id),
+                "citations": [
+                    {
+                        "chunk_id": c["chunk_id"],
+                        "source_ref": c["source_ref"],
+                        "relevance_score": round(c.get("relevance_score", 0.0), 4),
+                    }
+                    for c in result.citations
+                ],
+            },
+        }
         yield {"type": "TEXT_MESSAGE_CONTENT", "messageId": message_id, "delta": result.answer}
         yield {"type": "TEXT_MESSAGE_END", "messageId": message_id}
         yield {"type": "RUN_FINISHED", "threadId": str(run_id), "runId": str(run_id)}
@@ -217,7 +289,8 @@ async def agui_event_stream(
             await session.commit()
         except Exception:
             pass
-        yield {"type": "RUN_ERROR", "message": "An error occurred during the research run.", "code": "AGENT_ERROR"}
+        code = _error_code(exc)
+        yield {"type": "RUN_ERROR", "message": ERROR_CODES[code], "code": code}
 
 
 @router.post("/chat")
@@ -228,19 +301,35 @@ async def research_chat(
     session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
     """AG-UI SSE endpoint for research runs. Streams typed events."""
-    question = request.question.strip()
+    question = (request.question or "").strip()
+    if not question and request.messages:
+        for msg in reversed(request.messages):
+            if msg.get("role") == "user":
+                parts = msg.get("parts", [])
+                for part in parts:
+                    if part.get("type") == "text" and part.get("content"):
+                        question = part["content"].strip()
+                        break
+                if not question:
+                    question = msg.get("content", "").strip()
+                if question:
+                    break
     if not question:
         raise HTTPException(status_code=422, detail="Question cannot be empty.")
 
+    thread_id = request.thread_id or "default"
+
     async def event_generator():
-        async for event in agui_event_stream(
-            question,
-            workspace_id,
-            user_id,
-            session,
-            history=request.messages,
-        ):  # pyright: ignore[reportGeneralTypeIssues]
-            yield f"data: {json.dumps(event)}\n\n"
+        lock = _get_conversation_lock(thread_id)
+        async with lock:
+            async for event in agui_event_stream(
+                question,
+                workspace_id,
+                user_id,
+                session,
+                history=request.messages,
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
