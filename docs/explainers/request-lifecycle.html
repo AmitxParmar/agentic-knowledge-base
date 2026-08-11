@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic Research Workspace — UI → Backend Lifecycle</title>
+<script>
+  (function () {
+    var key = "arw-theme";
+    var saved = null;
+    try { saved = localStorage.getItem(key); } catch (e) {}
+    var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.classList.toggle("dark", dark);
+  })();
+</script>
+<style>
+  :root {
+    --ivory:  #FAF9F5;
+    --paper:  #FFFFFF;
+    --slate:  #141413;
+    --clay:   #D97757;
+    --clay-d: #B85C3E;
+    --oat:    #E3DACC;
+    --olive:  #788C5D;
+    --g100:   #F0EEE6;
+    --g200:   #E6E3DA;
+    --g300:   #D1CFC5;
+    --g500:   #87867F;
+    --g700:   #3D3D3A;
+    --serif: ui-serif, Georgia, "Times New Roman", Times, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  }
+  html.dark {
+    --ivory:  #161310;
+    --paper:  #1F1B16;
+    --slate:  #EDE9DF;
+    --clay:   #D97757;
+    --clay-d: #E39A80;
+    --oat:    #38322A;
+    --olive:  #8FA374;
+    --g100:   #25211C;
+    --g200:   #302B25;
+    --g300:   #453F36;
+    --g500:   #938C7D;
+    --g700:   #CFC8BA;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--ivory);
+    color: var(--slate);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 32px 120px; }
+
+  .theme-toggle {
+    position: fixed; top: 18px; right: 18px; z-index: 40;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    background: var(--paper); color: var(--g700);
+    border: 1.5px solid var(--g300); border-radius: 999px;
+    padding: 7px 14px; cursor: pointer;
+  }
+  .theme-toggle:hover { border-color: var(--clay); color: var(--clay-d); }
+
+  header.masthead {
+    padding: 72px 0 48px;
+    border-bottom: 1.5px solid var(--g300);
+    margin-bottom: 10px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--g500);
+    margin-bottom: 18px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .eyebrow::before { content: ""; width: 24px; height: 1.5px; background: var(--clay); }
+  .eyebrow .dot { color: var(--g300); }
+  h1 {
+    font-family: var(--serif); font-weight: 500;
+    font-size: clamp(36px, 5.2vw, 54px);
+    line-height: 1.06; letter-spacing: -0.018em;
+    margin: 0 0 8px; max-width: 19ch;
+  }
+  h1 em { font-style: italic; color: var(--clay); }
+  .intro { font-size: 16.5px; color: var(--g700); margin: 22px 0 0; max-width: 660px; }
+  .intro strong { color: var(--slate); }
+
+  nav.series { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 34px; }
+  nav.series a {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase;
+    text-decoration: none; color: var(--g700);
+    background: var(--paper); border: 1.5px solid var(--g300); border-radius: 8px;padding: 8px 13px;
+  }
+  nav.series a:hover { border-color: var(--clay); color: var(--clay-d); }
+  nav.series a.current { border-color: var(--clay); color: var(--clay-d); background: var(--g100); }
+
+  section { margin-top: 64px; }
+  .kicker {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--g500); margin-bottom: 6px;
+  }
+  h2 {
+    font-family: var(--serif); font-weight: 500; font-size: 27px;
+    letter-spacing: -0.01em; margin: 0 0 14px;
+  }
+  h2 em { font-style: italic; color: var(--clay); }
+  .lede { color: var(--g700); max-width: 680px; margin: 0 0 22px; }
+  code {
+    font-family: var(--mono); font-size: 0.86em;
+    background: var(--g100); border-radius: 5px; padding: 1px 6px;
+    color: var(--clay-d);
+  }
+
+  /* swimlane lifecycle diagram */
+  .swim {
+    background: var(--paper); border: 1.5px solid var(--g300); border-radius: 14px;
+    padding: 22px; overflow-x: auto;
+  }
+  .swim-grid { min-width: 700px; }
+  .swim-cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 4px; }
+  .swim-col {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--g500); text-align: center;
+    padding-bottom: 8px; border-bottom: 1.5px solid var(--g200);
+  }
+  .step {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    align-items: center;
+    padding: 9px 0;
+    border-bottom: 1px dashed var(--g200);
+  }
+  .step:last-child { border-bottom: none; }
+  .step .cell { min-height: 8px; position: relative; }
+  .msg {
+    font-size: 12px; font-family: var(--mono);
+    background: var(--g100); border: 1.5px solid var(--g300); border-radius: 8px;
+    padding: 6px 9px; position: relative;
+  }
+  .msg .arrow {
+    position: absolute; top: 50%; width: 100%; left: 0;
+    border-top: 1.5px solid var(--clay);
+    pointer-events: none;
+  }
+  .msg .arrow::after {
+    content: "▸"; position: absolute; top: -10px; right: -3px; color: var(--clay);
+  }
+  .msg.to-left .arrow::after { right: auto; left: -3px; transform: scaleX(-1); }
+  .msg .lbl { display: block; font-size: 10px; color: var(--g500); margin-top: 3px; letter-spacing: 0.05em; }
+  .msg.custom-evt { border-color: var(--oat); background: var(--ivory); }
+  .msg.terminal { border-color: var(--clay); background: var(--ivory); }
+
+  .phase-label {
+    grid-column: 1 / -1;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--clay-d); margin: 4px 0 0;
+  }
+
+  /* SSE stream sample */
+  pre.stream {
+    background: var(--g100); border: 1.5px solid var(--g300); border-radius: 12px;
+    padding: 18px 20px; overflow-x: auto;
+    font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--g700);
+    margin: 0;
+  }
+  pre.stream .c { color: var(--g500); }
+  pre.stream .t { color: var(--clay-d); font-weight: 600; }
+
+  /* tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--g500); text-align: left; padding: 9px 12px;
+    border-bottom: 1.5px solid var(--g300);
+  }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--g200); vertical-align: top; color: var(--g700); }
+  tr:last-child td { border-bottom: none; }
+  td.event { font-family: var(--mono); font-size: 12px; color: var(--clay-d); white-space: nowrap; }
+  .table-wrap { background: var(--paper); border: 1.5px solid var(--g300); border-radius: 12px; overflow: hidden; }
+
+  .callout {
+    background: var(--g100); border: 1.5px solid var(--g300); border-left: 4px solid var(--clay);
+    border-radius: 10px; padding: 14px 18px; font-size: 13.5px; color: var(--g700);
+  }
+  .callout strong { color: var(--clay-d); }
+  .callout code { background: var(--paper); }
+
+  footer {
+    margin-top: 84px; padding-top: 22px; border-top: 1.5px solid var(--g300);
+    font-family: var(--mono); font-size: 11.5px; color: var(--g500);
+    display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  }
+  footer code { background: var(--g100); padding: 1px 6px; border-radius: 5px; }
+
+  @media (max-width: 800px) { .wrap { padding: 0 18px 90px; } }
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="theme-toggle" type="button">◐ theme</button>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">enterprise-agentic-knowledgebase <span class="dot">·</span> explainer 03</div>
+    <h1>From keystroke to cited answer — <em>the wire</em></h1>
+    <p class="intro">
+      The whole app speaks one protocol: a single POST, and then a one-way
+      <strong>Server-Sent Events</strong> stream of AG-UI events. This page follows a question
+      from the browser through the Research Agent and back — including the
+      <strong>CUSTOM events</strong> that carry stage labels and citations without ever touching
+      the answer text.
+    </p>
+
+    <nav class="series">
+      <a href="project-overview.html">01 · Project overview</a>
+      <a href="ux-decisions.html">02 · UX decisions</a>
+      <a class="current" href="request-lifecycle.html">03 · UI → backend lifecycle</a>
+    </nav>
+  </header>
+
+  <!-- ── RESEARCH QUESTION LIFECYCLE ───────────────────────────── -->
+  <section>
+    <div class="kicker">The happy path — POST /api/research/chat</div>
+    <h2>One question, <em>down and back</em></h2>
+    <p class="lede">
+      TanStack AI's <code>fetchServerSentEvents</code> connection adapter sends the question as a
+      normal POST and then subscribes to the response body as SSE. The server emits typed AG-UI
+      events the client folds into chat state — no hand-rolled WebSocket, no reconnect logic.
+    </p>
+
+    <div class="swim">
+      <div class="swim-grid">
+        <div class="swim-cols">
+          <div class="swim-col">Browser · useChat</div>
+          <div class="swim-col">FastAPI · router.py</div>
+          <div class="swim-col">Agent · LangGraph</div>
+          <div class="swim-col">Storage · PG / Redis</div>
+        </div>
+
+        <div class="phase-label">request</div>
+        <div class="step">
+          <div class="cell"><div class="msg">POST /api/research/chat<span class="lbl">{ question, threadId } — one per-run conversation lock</span><div class="arrow"></div></div></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+        </div>
+        <div class="step">
+          <div class="cell"></div>
+          <div class="cell"><div class="msg">create ResearchRun row<span class="lbl">status = running · workspace + user scoped</span><div class="arrow"></div></div></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+        </div>
+
+        <div class="phase-label">stream — progress stages travel as CUSTOM events</div>
+        <div class="step">
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell"><div class="msg custom-evt">CUSTOM · stage<span class="lbl">"Searching documents…" → "Generating report…"</span><div class="arrow"></div></div></div>
+          <div class="cell"></div>
+        </div>
+        <div class="step">
+          <div class="cell"><div class="msg custom-evt to-left">← stage events<span class="lbl">render into the progress strip, not the answer bubble</span><div class="arrow"></div></div></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+        </div>
+
+        <div class="phase-label">stream — payload</div>
+        <div class="step">
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell"><div class="msg custom-evt">CUSTOM · citations<div class="arrow"></div><span class="lbl">run_id + chunk_id / source_ref / relevance_score</span></div></div>
+          <div class="cell"></div>
+        </div>
+        <div class="step">
+          <div class="cell"><div class="msg to-left">← TEXT_MESSAGE_CONTENT<div class="arrow"></div><span class="lbl">the final answer, in one delta</span></div></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+        </div>
+        <div class="step">
+          <div class="cell"><div class="msg terminal to-left">← RUN_FINISHED or RUN_ERROR<div class="arrow"></div><span class="lbl">terminal — link run to thread, stop the spinner</span></div></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+        </div>
+
+        <div class="phase-label">persist</div>
+        <div class="step">
+          <div class="cell"></div>
+          <div class="cell"><div class="msg">run.answer / status = complete<div class="arrow"></div><span class="lbl">research_runs row updated; citations rows already written at retrieval</span></div></div>
+          <div class="cell"></div>
+          <div class="cell"></div>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin-top:18px">
+      <span class="callout">
+        <strong>The split is deliberate:</strong> <em>stages</em> and <em>citations</em> are
+        <code>CUSTOM</code> events (<code>{"type":"CUSTOM","name":"stage","value":{...}}</code>),
+        while the <em>answer</em> is a standard <code>TEXT_MESSAGE_CONTENT</code> event. The client
+        SDK routes custom events to its <code>onCustomEvent(name, value)</code> callback, so the
+        progress strip and the citation rail stay structurally separate from the chat transcript.
+      </span>
+    </p>
+  </section>
+
+  <!-- ── STREAM, RAW ───────────────────────────────────────────── -->
+  <section>
+    <div class="kicker">What actually crosses the wire</div>
+    <h2>The SSE stream, <em>verbatim</em></h2>
+    <p class="lede">
+      One event per <code>data:</code> frame. The frontend parses each as JSON and dispatches on
+      <code>type</code>. This is the happy path for a successful run.
+    </p>
+    <pre class="stream"><span class="c">// request</span>
+POST /api/research/chat
+{ "question": "What does report.pdf say about revenue?", "threadId": "…" }
+
+<span class="c">// stream</span>
+data: {"type": "<span class="t">RUN_STARTED</span>", "threadId": "…", "runId": "…"}
+
+data: {"type": "<span class="t">TEXT_MESSAGE_START</span>", "messageId": "…", "role": "assistant"}
+
+data: {"type": "<span class="t">CUSTOM</span>", "name": "stage", "value": {"stage": "Searching documents..."}}
+data: {"type": "<span class="t">CUSTOM</span>", "name": "stage", "value": {"stage": "Reviewing evidence..."}}
+data: {"type": "<span class="t">CUSTOM</span>", "name": "stage", "value": {"stage": "Generating report..."}}
+data: {"type": "<span class="t">CUSTOM</span>", "name": "stage", "value": {"stage": "Finalizing answer..."}}
+
+data: {"type": "<span class="t">CUSTOM</span>", "name": "citations", "value": {"run_id": "…", "citations": [
+        {"chunk_id": "…", "source_ref": "report.pdf, chunk 3", "relevance_score": 0.91},
+        {"chunk_id": "…", "source_ref": "code/main.py:MyClass", "relevance_score": 0.84}]}}
+
+data: {"type": "<span class="t">TEXT_MESSAGE_CONTENT</span>", "messageId": "…", "delta": "The report states [1] and [2]."}
+data: {"type": "<span class="t">TEXT_MESSAGE_END</span>", "messageId": "…"}
+data: {"type": "<span class="t">RUN_FINISHED</span>", "threadId": "…", "runId": "…"}</pre>
+  </section>
+
+  <!-- ── ERROR CODES ───────────────────────────────────────────── -->
+  <section>
+    <div class="kicker">Failure is user-facing too</div>
+    <h2>Structured <em>error codes</em></h2>
+    <p class="lede">
+      When a run fails, the client gets a <code>RUN_ERROR</code> event with a stable machine code
+      and a plain-English message — never a stack trace. The selector lives in
+      <code>apps/api/src/research/router.py</code> and maps exception types to codes.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Code</th><th>Trigger</th><th>User sees</th></tr></thead>
+        <tbody>
+          <tr><td class="event">RATE_LIMIT</td><td>Provider 429 (Groq/OpenRouter)</td><td>"The model provider is rate limited. Please wait a moment and try again."</td></tr>
+          <tr><td class="event">PROVIDER_ERROR</td><td>Provider down / unreachable</td><td>"The model provider is unavailable. Please check provider status and try again."</td></tr>
+          <tr><td class="event">RETRIEVAL_ERROR</td><td>Hybrid search / embedding failure</td><td>"An error occurred while searching the documents. Please try again."</td></tr>
+          <tr><td class="event">TOOL_PARSE_ERROR</td><td>Malformed model tool call</td><td>"The model produced a malformed tool call. Please try again."</td></tr>
+          <tr><td class="event">AGENT_ERROR</td><td>Catch-all</td><td>"An error occurred during the research run."</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── INGESTION LIFECYCLE ───────────────────────────────────── -->
+  <section>
+    <div class="kicker">The other loop — POST /api/ingestion/upload</div>
+    <h2>Ingestion <em>handshake</em></h2>
+    <p class="lede">
+      Uploads are deliberately async: the request returns <em>immediately</em> with a job id,
+      and an <strong>arq</strong> worker does the heavy lifting through the same stage vocabulary
+      ("Uploading… Extracting… Chunking… Creating embeddings…"). The client polls the job and
+      shows those stage names — the same UI language as a research run.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Step</th><th>Producer</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="event">1 · upload</td><td>FastAPI route</td><td><code>documents</code> + queued <code>ingestion_jobs</code> row, raw file to storage (R2/disk). Returns 202-style job id.</td></tr>
+          <tr><td class="event">2 · extract</td><td>arq worker</td><td>Docling (PDF) · faster-whisper (audio) · tree-sitter+gitingest (repo) → structured text.</td></tr>
+          <tr><td class="event">3 · chunk</td><td>arq worker</td><td>Chonkie — semantic boundaries, not fixed token counts.</td></tr>
+          <tr><td class="event">4–5 · embed</td><td>arq worker</td><td>BGE-M3 vector per chunk; metadata extracted alongside.</td></tr>
+          <tr><td class="event">6 · persist</td><td>arq worker</td><td>Chunk rows → Postgres · vectors → in-process Turbovec (rebuilt from PG at boot).</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:18px">
+      <span class="callout">
+        <strong>One vocabulary, two surfaces.</strong> Both ingestion and research reuse the frozen
+        stage strings from <code>docs/ux.md</code> — the user always sees the same style of
+        progress whether they're waiting on a PDF to become searchable or on an answer to arrive.
+      </span>
+    </p>
+  </section>
+
+  <footer>
+    <span>explainer 03 / 03 · back to <a href="project-overview.html" style="color:var(--clay-d)">overview</a></span>
+    <span>sources: <code>apps/api/src/research/router.py</code> · <code>apps/web/features/research/api/use-research-chat.ts</code></span>
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var key = "arw-theme";
+    var btn = document.getElementById("theme-toggle");
+    btn.addEventListener("click", function () {
+      var dark = !document.documentElement.classList.contains("dark");
+      document.documentElement.classList.toggle("dark", dark);
+      try { localStorage.setItem(key, dark ? "dark" : "light"); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>

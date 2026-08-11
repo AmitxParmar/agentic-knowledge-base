@@ -33,7 +33,8 @@ flowchart TB
 
   subgraph Gateway["API Gateway · FastAPI"]
     REST["REST<br/>/api/ingestion/*"]
-    WS["WebSocket<br/>/api/research/ws"]
+    CHAT["SSE · AG-UI<br/>/api/research/chat"]
+    WS["WebSocket (legacy)<br/>/api/research/ws"]
   end
 
   subgraph Ingest["Ingestion · arq workers"]
@@ -63,12 +64,12 @@ flowchart TB
     MG["complete / complete_with_tools<br/>Groq → OpenRouter"]
   end
 
-  WEB --> REST & WS
+  WEB --> REST & CHAT
   CLI --> REST & WS
   REST --> Q --> X --> C --> E
   REST --> FS
   E --> PG & TV
-  WS --> RA
+  CHAT --> RA
   RA --> HYDE --> HYB
   HYB --> PG & TV
   HYB --> RER --> RA
@@ -114,21 +115,27 @@ sequenceDiagram
 
 ## Low-level: research (ask → cited answer)
 
-One WebSocket connection per run. Progress uses the fixed vocabulary in [`docs/ux.md`](docs/ux.md). Answer is currently sent as a full blob (token streaming not implemented yet).
+The product path is a single `POST /api/research/chat` that opens a one-way
+AG-UI Server-Sent Events stream (TanStack AI `useChat` on the client). Progress
+uses the fixed vocabulary in [`docs/ux.md`](docs/ux.md); citations arrive as a
+separate `CUSTOM` event and are resolved against `[n]` markers in the answer.
+
+The legacy WebSocket endpoint (`/api/research/ws`) is retained for manual
+testing but is no longer the product path.
 
 ```mermaid
 sequenceDiagram
-  participant UI as Web / wscat
-  participant API as research WS
+  participant UI as Web (TanStack useChat)
+  participant API as POST /api/research/chat (SSE)
   participant AG as Research Agent
   participant MG as Model Gateway
   participant RET as Retrieval pipeline
   participant PG as PostgreSQL
   participant TV as Vector index
 
-  UI->>API: connect + {"question": "..."}
+  UI->>API: POST {"question": "...", "threadId": "..."}
+  API-->>UI: RUN_STARTED / TEXT_MESSAGE_START
   API->>PG: research_runs (running)
-  API-->>UI: progress Searching documents...
   AG->>MG: ReAct · may call retrieve_evidence
   AG->>RET: retrieve(query, workspace_id)
   RET->>MG: HyDE expand
@@ -137,11 +144,14 @@ sequenceDiagram
   RET->>RET: RRF + rerank
   RET-->>AG: chunks + source_ref
   Note over AG: citations attached at retrieval time
-  API-->>UI: progress Reviewing / Generating / Finalizing
+  loop progress
+    API-->>UI: CUSTOM stage (Searching → Reviewing → Generating → Finalizing)
+  end
   AG->>MG: draft answer
   AG->>PG: citations + answer
-  API-->>UI: answer + citations
-  API-->>UI: done
+  API-->>UI: CUSTOM citations
+  API-->>UI: TEXT_MESSAGE_CONTENT (answer)
+  API-->>UI: TEXT_MESSAGE_END / RUN_FINISHED
 ```
 
 ## Data model (conceptual)
@@ -182,7 +192,8 @@ Postgres is authoritative for chunk text and metadata. The vector index is keyed
 | --- | --- | --- |
 | `POST` | `/api/ingestion/upload` | Upload file, enqueue job |
 | `GET` | `/api/ingestion/jobs/{id}` | Poll ingestion stage |
-| `WS` | `/api/research/ws` | Question → progress → answer + citations |
+| `POST` | `/api/research/chat` | AG-UI SSE stream: stages → answer → citations (primary) |
+| `WS` | `/api/research/ws` | Legacy question → progress → answer (manual testing) |
 | `GET` | `/api/research/runs/{id}` | Fetch a completed run |
 | `GET` | `/health` | Liveness |
 

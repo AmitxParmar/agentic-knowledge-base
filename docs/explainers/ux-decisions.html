@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic Research Workspace — UX Decisions</title>
+<script>
+  (function () {
+    var key = "arw-theme";
+    var saved = null;
+    try { saved = localStorage.getItem(key); } catch (e) {}
+    var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.classList.toggle("dark", dark);
+  })();
+</script>
+<style>
+  :root {
+    --ivory:  #FAF9F5;
+    --paper:  #FFFFFF;
+    --slate:  #141413;
+    --clay:   #D97757;
+    --clay-d: #B85C3E;
+    --oat:    #E3DACC;
+    --olive:  #788C5D;
+    --red:    #A34B3A;
+    --g100:   #F0EEE6;
+    --g200:   #E6E3DA;
+    --g300:   #D1CFC5;
+    --g500:   #87867F;
+    --g700:   #3D3D3A;
+    --serif: ui-serif, Georgia, "Times New Roman", Times, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  }
+  html.dark {
+    --ivory:  #161310;
+    --paper:  #1F1B16;
+    --slate:  #EDE9DF;
+    --clay:   #D97757;
+    --clay-d: #E39A80;
+    --oat:    #38322A;
+    --olive:  #8FA374;
+    --red:    #C97A66;
+    --g100:   #25211C;
+    --g200:   #302B25;
+    --g300:   #453F36;
+    --g500:   #938C7D;
+    --g700:   #CFC8BA;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--ivory);
+    color: var(--slate);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 32px 120px; }
+
+  .theme-toggle {
+    position: fixed; top: 18px; right: 18px; z-index: 40;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    background: var(--paper); color: var(--g700);
+    border: 1.5px solid var(--g300); border-radius: 999px;
+    padding: 7px 14px; cursor: pointer;
+  }
+  .theme-toggle:hover { border-color: var(--clay); color: var(--clay-d); }
+
+  header.masthead {
+    padding: 72px 0 48px;
+    border-bottom: 1.5px solid var(--g300);
+    margin-bottom: 10px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--g500);
+    margin-bottom: 18px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .eyebrow::before { content: ""; width: 24px; height: 1.5px; background: var(--clay); }
+  .eyebrow .dot { color: var(--g300); }
+  h1 {
+    font-family: var(--serif); font-weight: 500;
+    font-size: clamp(36px, 5.2vw, 56px);
+    line-height: 1.06; letter-spacing: -0.018em;
+    margin: 0 0 8px; max-width: 17ch;
+  }
+  h1 em { font-style: italic; color: var(--clay); }
+  .intro { font-size: 16.5px; color: var(--g700); margin: 22px 0 0; max-width: 660px; }
+  .intro strong { color: var(--slate); }
+
+  nav.series { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 34px; }
+  nav.series a {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase;
+    text-decoration: none; color: var(--g700);
+    background: var(--paper); border: 1.5px solid var(--g300); border-radius: 8px;
+    padding: 8px 13px;
+  }
+  nav.series a:hover { border-color: var(--clay); color: var(--clay-d); }
+  nav.series a.current { border-color: var(--clay); color: var(--clay-d); background: var(--g100); }
+
+  section { margin-top: 64px; }
+  .kicker {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--g500); margin-bottom: 6px;
+  }
+  h2 {
+    font-family: var(--serif); font-weight: 500; font-size: 27px;
+    letter-spacing: -0.01em; margin: 0 0 14px;
+  }
+  h2 em { font-style: italic; color: var(--clay); }
+  .lede { color: var(--g700); max-width: 680px; margin: 0 0 22px; }
+  .lede code, p code, td code, li code {
+    font-family: var(--mono); font-size: 0.86em;
+    background: var(--g100); border-radius: 5px; padding: 1px 6px;
+    color: var(--clay-d);
+  }
+
+  /* the see/never-see split */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .split { grid-template-columns: 1fr; } }
+  .panel {
+    border-radius: 12px; padding: 20px 22px;
+    border: 1.5px solid var(--g300); background: var(--paper);
+  }
+  .panel.allow { border-top: 3px solid var(--olive); }
+  .panel.deny  { border-top: 3px solid var(--red); }
+  .panel h3 {
+    margin: 0 0 10px; font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .panel.allow h3 { color: var(--olive); }
+  .panel.deny h3 { color: var(--red); }
+  .panel ul { margin: 0; padding-left: 17px; font-size: 13.5px; color: var(--g700); }
+  .panel li { margin-bottom: 5px; }
+
+  /* stage vocabulary tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--g500); text-align: left; padding: 9px 12px;
+    border-bottom: 1.5px solid var(--g300);
+  }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--g200); vertical-align: top; color: var(--g700); }
+  tr:last-child td { border-bottom: none; }
+  td.stage { font-family: var(--mono); font-size: 12.5px; color: var(--slate); white-space: nowrap; }
+  td.step  { font-family: var(--mono); font-size: 12px; color: var(--g500); white-space: nowrap; }
+  .table-wrap { background: var(--paper); border: 1.5px solid var(--g300); border-radius: 12px; overflow: hidden; }
+
+  /* stage strip mock */
+  .mock-strip {
+    display: flex; align-items: center; gap: 0; flex-wrap: wrap;
+    background: var(--paper); border: 1.5px solid var(--g300); border-radius: 12px;
+    padding: 18px 22px; font-family: var(--mono); font-size: 12.5px;
+  }
+  .mock-stage { color: var(--g500); padding: 4px 0; }
+  .mock-stage.done { color: var(--olive); }
+  .mock-stage.active { color: var(--clay-d); animation: pulse 1.6s ease-in-out infinite; }
+  .mock-arrow { color: var(--g300); margin: 0 12px; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+
+  .callout {
+    background: var(--g100); border: 1.5px solid var(--g300); border-left: 4px solid var(--clay);
+    border-radius: 10px; padding: 14px 18px; font-size: 13.5px; color: var(--g700);
+  }
+  .callout strong { color: var(--clay-d); }
+
+  /* decision cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--paper); border: 1.5px solid var(--g300); border-radius: 12px; padding: 18px 20px;
+    border-top: 3px solid var(--clay);
+  }
+  .card h3 { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.05em; margin: 0 0 8px; }
+  .card p { margin: 0 0 10px; font-size: 13.5px; color: var(--g700); }
+  .card .res {
+    font-size: 12.5px; color: var(--olive);
+    font-family: var(--mono);
+    border-top: 1px dashed var(--g300); padding-top: 9px; margin-top: 10px;
+  }
+
+  footer {
+    margin-top: 84px; padding-top: 22px; border-top: 1.5px solid var(--g300);
+    font-family: var(--mono); font-size: 11.5px; color: var(--g500);
+    display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  }
+  footer code { background: var(--g100); padding: 1px 6px; border-radius: 5px; }
+
+  @media (max-width: 800px) { .wrap { padding: 0 18px 90px; } }
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="theme-toggle" type="button">◐ theme</button>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">enterprise-agentic-knowledgebase <span class="dot">·</span> explainer 02</div>
+    <h1>The <em>UX contract</em> the whole stack obeys</h1>
+    <p class="intro">
+      One line from <code style="font-family:var(--mono);font-size:0.85em;background:var(--g100);padding:1px 6px;border-radius:5px">docs/ux.md</code> defines the
+      client experience: <strong>the user sees <em>what</em> the system is doing, never <em>how</em>
+      the model is thinking.</strong> Two artifacts enforce it — a frozen vocabulary of progress
+      stages, and a hard requirement that every cited claim stays clickable back to its source chunk.
+    </p>
+
+    <nav class="series">
+      <a href="project-overview.html">01 · Project overview</a>
+      <a class="current" href="ux-decisions.html">02 · UX decisions</a>
+      <a href="request-lifecycle.html">03 · UI → backend lifecycle</a>
+    </nav>
+  </header>
+
+  <!-- ── SEE / NEVER SEE ───────────────────────────────────────── -->
+  <section>
+    <div class="kicker">The core principle</div>
+    <h2>What's on the channel, <em>and what never is</em></h2>
+    <p class="lede">
+      Progress stages are the <em>only</em> window into an in-progress run. The frontend never
+      renders a bare spinner for the thinking phase, and never streams raw model output mid-run.
+    </p>
+    <div class="split">
+      <div class="panel allow">
+        <h3>Allowed on the client</h3>
+        <ul>
+          <li><strong>Stage names</strong>, verbatim from the vocabulary below</li>
+          <li>The <strong>final answer</strong> text, once ready</li>
+          <li><strong>Citations</strong> — numbered references the user can click through to the source passage</li>
+          <li>User-visible <strong>error messages</strong> in plain English</li>
+        </ul>
+      </div>
+      <div class="panel deny">
+        <h3>Explicitly forbidden</h3>
+        <ul>
+          <li>Raw <strong>chain-of-thought</strong> or scratchpad reasoning</li>
+          <li>Hidden <strong>system / agent prompts</strong></li>
+          <li>Internal <strong>tool-call payloads</strong> — retrieval queries, rerank scores</li>
+          <li>Any <strong>free-form status strings</strong> invented mid-stream</li>
+        </ul>
+      </div>
+    </div>
+
+    <p style="margin-top:18px">
+      <span class="callout">
+        <strong>Why so strict?</strong> Retrieval failing or a model looping is <em>not</em> the
+        user's debugging session. The vocabulary surfaces just enough to feel transparent —
+        "it's searching, now it's drafting" — while the internals stay free to change without
+        breaking the UI. The same rule is duplicated in the agent-facing contract:
+        <code>conventions.md → Progress-event pattern</code>.
+      </span>
+    </p>
+  </section>
+
+  <!-- ── STAGE VOCABULARY ──────────────────────────────────────── -->
+  <section>
+    <div class="kicker">Frozen vocabulary — docs/ux.md</div>
+    <h2>Progress <em>stages</em></h2>
+    <p class="lede">
+      These exact strings are the only text allowed on the progress channel. Add a word and it
+      fails review; add a stage and you update <code>ux.md</code> first, <em>then</em> the code.
+      In the browser they render as an inline strip below the answer area, with the current stage
+      pulsing until the answer lands.
+    </p>
+
+    <div class="mock-strip">
+      <span class="mock-stage done">Searching documents…</span><span class="mock-arrow">→</span>
+      <span class="mock-stage done">Reviewing evidence…</span><span class="mock-arrow">→</span>
+      <span class="mock-stage active">Generating report…</span><span class="mock-arrow">→</span>
+      <span class="mock-stage">Finalizing answer…</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px" class="split">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Ingestion</th><th>Pipeline step</th></tr></thead>
+          <tbody>
+            <tr><td class="stage">Uploading document...</td><td class="step">ingestion · stage 1</td></tr>
+            <tr><td class="stage">Extracting content...</td><td class="step">ingestion · stage 2</td></tr>
+            <tr><td class="stage">Chunking content...</td><td class="step">ingestion · stage 3</td></tr>
+            <tr><td class="stage">Creating embeddings...</td><td class="step">ingestion · stages 4–5</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Research run</th><th>Pipeline step</th></tr></thead>
+          <tbody>
+            <tr><td class="stage">Searching documents...</td><td class="step">hybrid retrieval call</td></tr>
+            <tr><td class="stage">Reviewing evidence...</td><td class="step">agent weighing chunks</td></tr>
+            <tr><td class="stage">Generating report...</td><td class="step">drafting the answer</td></tr>
+            <tr><td class="stage">Finalizing answer...</td><td class="step">attaching citations</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CITATION REQUIREMENT ──────────────────────────────────── -->
+  <section>
+    <div class="kicker">Trust mechanism</div>
+    <h2>Every claim carries a <em>receipt</em></h2>
+    <p class="lede">
+      The citation display requirement is a <em>success criterion</em>, not a nicety: an answer
+      with no visible citations has failed <code>docs/specs/researcher.md → Success Criteria</code>,
+      no matter how good the prose reads. Two patterns make it hold up under change:
+    </p>
+    <div class="cards">
+      <div class="card">
+        <h3>1 · Citation-at-retrieval</h3>
+        <p>
+          A citation record is created the moment a chunk is retrieved, attached to the evidence
+          itself — never reverse-engineered from the final answer text after the fact.
+        </p>
+        <p>
+          Downstream stages pass the reference along untouched, so the link can't quietly fall off
+          mid-pipeline.
+        </p>
+        <div class="res">↳ enforced as a rule in the root AGENTS.md + conventions.md</div>
+      </div>
+      <div class="card">
+        <h3>2 · Transport keeps citation + answer separate</h3>
+        <p>
+          Citations travel as their own structured event
+          (<code>kind: "citations"</code> on the AG-UI SSE stream), carrying
+          <code>chunk_id</code>, <code>source_ref</code>, and <code>relevance_score</code>.
+        </p>
+        <p>
+          The UI resolves <code>[1]</code> <code>[2]</code> markers in the answer against that
+          list — grouping by document, showing the source and score on hover.
+        </p>
+        <div class="res">↳ see explainer 03 for the full wire path</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── DECISIONS & TRADE-OFFS ────────────────────────────────── -->
+  <section>
+    <div class="kicker">Why it looks the way it does</div>
+    <h2>UX decisions <em>and their rationale</em></h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Stage strip, not a chat-of-thought</h3>
+        <p>
+          The V1 design imagined "watch the reasoning unfold" multi-agent trace views. The MVP
+          rejected that: reasoning views leak implementation, and the agents they assume (Planner,
+          Critic) don't exist yet.
+        </p>
+        <div class="res">↳ deferred to Phase 2, per ux.md Out of Scope</div>
+      </div>
+      <div class="card">
+        <h3>Terminal UI aesthetic</h3>
+        <p>
+          The conversation surface reads like a research terminal —
+          <code>&lt; QUERY &gt;</code> / <code>&lt;&lt; ANSWER &gt;&gt;</code> headers, an indexed
+          thread rail, and a <code>&gt;&gt;&gt; RUN</code> composer. It matches the product's
+          evidence-first stance: dense information, no decorative chrome.
+        </p>
+        <div class="res">↳ apps/web · research-chat.tsx</div>
+      </div>
+      <div class="card">
+        <h3>Chat surface, SSE transport</h3>
+        <p>
+          The UI is a conversation thread (TanStack AI <code>useChat</code>), but the wire is a
+          one-way POST + SSE stream. Server Sent Events give browser-native resume, and — unlike a
+          WebSocket — a plain HTTP request carries the question, so history, auth headers, and
+          error handling reuse normal fetch machinery.
+        </p>
+        <div class="res">↳ ADR-005 · see explainer 03</div>
+      </div>
+      <div class="card">
+        <h3>Who is this for</h3>
+        <p>
+          Persona: an analyst or engineer who already trusts nothing they read and wants every
+          claim checkable. Anti-persona for MVP: a team platform with roles, sharing, and audit
+          trails (RBAC is a Phase 2 goal).
+        </p>
+        <div class="res">↳ PRD · Assumptions + Non-Goals</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>explainer 02 / 03 · next: <a href="request-lifecycle.html" style="color:var(--clay-d)">UI → backend lifecycle</a></span>
+    <span>sources: <code>docs/ux.md</code> · <code>docs/conventions.md</code> · <code>docs/specs/researcher.md</code></span>
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var key = "arw-theme";
+    var btn = document.getElementById("theme-toggle");
+    btn.addEventListener("click", function () {
+      var dark = !document.documentElement.classList.contains("dark");
+      document.documentElement.classList.toggle("dark", dark);
+      try { localStorage.setItem(key, dark ? "dark" : "light"); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>

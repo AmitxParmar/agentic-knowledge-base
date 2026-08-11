@@ -105,3 +105,4 @@ uvicorn.log
 .data/
 graphify-out/
 .commandcode/
+.understand-anything/

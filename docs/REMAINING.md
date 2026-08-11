@@ -4,7 +4,7 @@
 > `docs/latest-architecture.html` (V1 design), `docs/PRD.md` (MVP boundary),
 > `ROADMAP.md`, specs, and the current `apps/` code.
 >
-> Last updated: 2026-07-12
+> Last updated: 2026-08-09
 
 ## Status legend
 
@@ -18,7 +18,7 @@
 ## How to read this document
 
 - **MVP path:** upload → arq ingestion → Postgres + vectors → question over
-  WebSocket → Research Agent → hybrid retrieval → cited answer.
+  SSE (AG-UI) → Research Agent → hybrid retrieval → cited answer.
 - **Not in MVP:** Planner, Critic, semantic cache, MCP tools, full security
   zone, nightly eval, multi-agent live trajectory UI.
 - Rule from `AGENTS.md`: do not build deferred V1 features without a
@@ -31,7 +31,7 @@
 | Zone | MVP target | Today |
 |---|---|---|
 | Clients | Minimal web | Partial Next.js UI |
-| API Gateway | FastAPI REST + WS | Done (no input guard / semantic cache) |
+| API Gateway | FastAPI REST + SSE (AG-UI) | Done (no input guard / semantic cache) |
 | Retrieval | Hybrid + rerank | Partial (fallbacks, no tsv GIN) |
 | Orchestration | 1 Research Agent | Done (no Planner / Critic) |
 | Memory | — | Deferred |
@@ -51,7 +51,7 @@
 1. DB: upgrade + seed + tsvector migration          ← unblocks BM25 quality
 2. Embed/rerank real endpoints (kill hash fallback) ← unblocks meaningful search
 3. Worker + upload PDF E2E                          ← unblocks retrieval
-4. retrieve() smoke + research agent + WS           ← MVP success criteria
+4. retrieve() smoke + research agent + SSE          ← MVP success criteria (verified 2026-08-09)
 5. Browser path via apps/web                        ← non-dev testing
 6. Hardening (health, limits, retries)              ← before real users
 7. Only then: Critic → Planner → cache → RBAC       ← V1 diagram features
@@ -63,17 +63,17 @@
 
 | Item | Status | Notes |
 |---|---|---|
-| Minimal Next.js chat + upload (`apps/web`) | Partial / Done | Upload, job poll, WS Q&A, citations UI exist |
+| Minimal Next.js chat + upload (`apps/web`) | Partial / Done | Upload, job poll, SSE Q&A (TanStack AI), citations UI exist |
 | Live multi-agent trajectory UI | Deferred | `ux.md`: MVP shows stage names only |
 | Voice UI | Remaining | Architecture shows “Chat / Voice”; not in MVP |
-| API / CLI client polish | Partial | REST + WS exist; no dedicated CLI package |
+| API / CLI client polish | Partial | REST + SSE exist; no dedicated CLI package |
 | `apps/docs` product docs site | Remaining | Still Turborepo starter template |
 | Root `README` product docs | Remaining | Still generic Turborepo starter |
 
 ### Checklist
 
 - [ ] Verify upload → poll → ask → cite E2E in the browser
-- [ ] Error surfaces for WS `type: error` and failed ingestion
+- [ ] Error surfaces for SSE `RUN_ERROR` and failed ingestion
 - [ ] Citation click → show source chunk passage
 - [ ] Deploy Next.js (Vercel) when backend is stable
 
@@ -127,7 +127,7 @@
 | LangGraph Research Agent (ReAct) | Done | `src/research/agent.py` |
 | Citation-at-retrieval | Done | Spec + integration test scaffolding |
 | Iteration bound (mini circuit breaker) | Partial | `MAX_ITERATIONS = 5` only |
-| WebSocket progress stages | Done | Must match `ux.md` vocabulary |
+| SSE (AG-UI) progress stages | Done | Must match `ux.md` vocabulary |
 | Planner Agent | Deferred | Needs `docs/specs/planner.md` first |
 | Critic + reflection loop | Deferred | Needs `docs/specs/critic.md` first |
 | Plan Cache (APC) | Deferred | Depends on Planner |
@@ -135,8 +135,8 @@
 
 ### Checklist (MVP ops)
 
-- [ ] Prove agent E2E: answer + ≥1 citation + `research_runs` / `citations` rows
-- [ ] Prove WS stage order and no CoT/prompt leakage
+- [x] Prove agent E2E: answer + ≥1 citation + `research_runs` / `citations` rows — verified 2026-08-09 (SSE, 8 citations persisted)
+- [x] Prove SSE stage order and no CoT/prompt leakage — verified 2026-08-09
 - [ ] Disconnect mid-run → `failed` status
 
 ---
@@ -269,13 +269,13 @@ Highest priority. Code is largely written; ops and proof are not.
 | 8. Ingestion E2E | Remaining |
 | 9. Retrieval script/tests | Remaining |
 | 10. Research agent E2E | Remaining |
-| 11. WebSocket contract | Remaining |
+| 11. SSE (AG-UI) contract | Done — verified 2026-08-09 |
 | 12. ruff + basedpyright + pytest green | Remaining to verify |
 
 ### Definition of Done (still open)
 
 - [ ] PDF upload → `done` without manual steps
-- [ ] Question → cited answer over WebSocket
+- [x] Question → cited answer over SSE — verified 2026-08-09
 - [ ] ≥1 citation with usable `source_ref`
 - [ ] Progress events use only `ux.md` strings
 - [ ] Lint + typecheck clean
@@ -307,7 +307,7 @@ Ingestion.
 ```mermaid
 flowchart TB
   subgraph Clients
-    CHAT["Chat / Voice UI<br/>Next.js · WebSocket"]
+    CHAT["Chat / Voice UI<br/>Next.js · SSE (AG-UI)"]
     API["API / CLI Client<br/>REST · Bearer"]
   end
 
@@ -452,8 +452,8 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-  participant UI as Next.js WebSocket
-  participant API as research router
+  participant UI as Next.js (TanStack useChat)
+  participant API as POST /api/research/chat (SSE)
   participant Auth as auth stub
   participant AG as LangGraph Research Agent
   participant MG as Model Gateway
@@ -462,10 +462,10 @@ sequenceDiagram
   participant TV as Turbovec
   participant LF as Langfuse / Logfire
 
-  UI->>API: WS /api/research/ws {question}
+  UI->>API: POST {question, threadId}
+  API-->>UI: RUN_STARTED / TEXT_MESSAGE_START
   API->>Auth: workspace_id / user_id
   API->>PG: research_runs (running)
-  API-->>UI: progress Searching documents...
   AG->>MG: ReAct (tools: retrieve_evidence)
   AG->>RET: retrieve(question, workspace_id)
   RET->>MG: HyDE expand query
@@ -475,11 +475,14 @@ sequenceDiagram
   RET->>RET: rerank
   RET-->>AG: RetrievedChunk[] + source_ref
   Note over AG: citations attached at retrieval time
-  API-->>UI: progress Reviewing / Generating
+  loop progress
+    API-->>UI: CUSTOM stage (Searching → Finalizing)
+  end
   AG->>MG: draft final answer
   AG->>PG: citations rows + answer
-  API-->>UI: progress Finalizing answer...
-  API-->>UI: answer + citations + done
+  API-->>UI: CUSTOM citations
+  API-->>UI: TEXT_MESSAGE_CONTENT (answer)
+  API-->>UI: TEXT_MESSAGE_END / RUN_FINISHED
   AG-->>LF: spans / traces
 ```
 

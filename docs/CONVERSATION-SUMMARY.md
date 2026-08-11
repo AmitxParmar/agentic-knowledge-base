@@ -112,7 +112,8 @@ Also used: `apps/api/scratch_test.py` (upload → poll job → WS chat).
 | --- | --- | --- |
 | `POST` | `/api/ingestion/upload` | Upload + enqueue arq |
 | `GET` | `/api/ingestion/jobs/{id}` | Poll ingestion |
-| `WS` | `/api/research/ws` | Progress → answer |
+| `POST` | `/api/research/chat` | AG-UI SSE stream: stages → answer → citations (primary) |
+| `WS` | `/api/research/ws` | Legacy progress → answer (manual testing only) |
 | `GET` | `/api/research/runs/{id}` | Fetch completed run |
 | `GET` | `/health` | Liveness only |
 
