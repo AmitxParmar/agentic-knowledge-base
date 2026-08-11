@@ -1,12 +1,16 @@
 /**
  * features/research/utils/parse-citations.ts
  * ------------------------------------------
- * Purpose:    Group and order citations by document + chunk for display.
- * Dependencies: ws-adapter.ts (Citation type)
+ * Purpose:    Citation shape + grouping/ordering by document + chunk for display.
+ * Dependencies: none
  * Scope:      Citation display logic.
  */
 
-import type { Citation } from "./ws-adapter";
+export interface Citation {
+  chunk_id: string;
+  source_ref: string;
+  relevance_score: number;
+}
 
 export interface GroupedCitation {
   index: number;

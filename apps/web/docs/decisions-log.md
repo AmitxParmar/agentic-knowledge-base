@@ -57,7 +57,8 @@ loop and all model calls to the backend. The retrieval pipeline, embeddings,
 and citation-at-retrieval all live in Python. Sliding the agent into the
 frontend would require reopening both ADRs and duplicating the retrieval
 pipeline in TypeScript. The backend streams a fixed-vocabulary protocol over
-WebSocket; the frontend's job is to render that faithfully.
+an AG-UI SSE endpoint (`POST /api/research/chat`); the frontend's job is to
+render that faithfully.
 
 **Implication:** TanStack AI (Phase 2) manages the **user interaction** with
 the agent (chat state, streaming UX, client tools, approval interrupts) —
@@ -184,10 +185,11 @@ are honest (no fake data) and set up the routes for Phase 2 activation.
 
 ---
 
-### D-013: WebSocket not in React Query
+### D-013: Stream events not in React Query
 
-**Decision:** `use-research-ws` owns transient stages via local state. Only
-the completed `run_id` is written into the React Query cache.
+**Decision:** `use-research-chat` (TanStack AI over SSE) owns the stream;
+`use-research-run` folds stage/citation events into transient local state.
+Only the completed `run_id` is written into the React Query cache.
 
 **Reasoning:** Progress stages are transient **events**, not server state —
 they don't belong in a data cache. The completed run, however, is durable
@@ -221,15 +223,21 @@ is a one-file change to `useWorkspaceId`, not a refactor across every page.
 
 ---
 
-### D-016: AG-UI protocol — deferred to Phase 2
+### D-016: AG-UI protocol — adopted (supersedes original deferral)
 
-**Decision:** Phase 1 uses the backend's existing custom WS schema
-(`{type:"progress"}`/`{type:"answer"}`). AG-UI adoption deferred.
+**Original decision:** Phase 1 used the backend's existing custom WS schema
+(`{type:"progress"}`/`{type:"answer"}`); AG-UI adoption was deferred.
 
-**Reasoning:** The backend speaks a custom protocol; TanStack AI speaks AG-UI.
-Bridging them requires either rewriting the backend's WS layer or writing a
-frontend adapter — both real work, both outside MVP scope. Phase 2 can
-evaluate AG-UI alongside the TanStack AI ADR.
+**Superseding decision:** ADR-005 Phase 4 adopted TanStack AI with the AG-UI
+protocol over a plain SSE endpoint (`POST /api/research/chat`). The backend
+now emits standard AG-UI events (`RUN_STARTED`, `TEXT_MESSAGE_START`, `CUSTOM`
+stage/citations, `TEXT_MESSAGE_CONTENT`, `RUN_FINISHED`). TanStack AI's
+`useChat` consumes the stream via `fetchServerSentEvents`; custom events route
+through `onCustomEvent`. This was verified end-to-end against live Neon
+Postgres + Upstash Redis + Groq/Cohere.
+
+The legacy `/api/research/ws` WebSocket endpoint is retained for `wscat`-style
+manual testing but is no longer the product path.
 
 ---
 

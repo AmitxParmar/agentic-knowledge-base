@@ -1,27 +1,32 @@
 /**
  * features/research/api/use-research-run.ts
- * -----------------------------------------
- * Purpose:    Research run lifecycle over WebSocket.
- *             Owns transient progress stages locally (not React Query —
- *             stages are transient events, not server state).
- *             Caches the completed run_id in React Query so useRunDetail
- *             can hydrate on navigation without re-running.
- * Dependencies: @tanstack/react-query, hooks/use-research-ws.ts, utils/ws-adapter.ts
+ * ------------------------------------------
+ * Purpose:    Research run lifecycle driven by the AG-UI SSE stream.
+ *             The research chat owns the SSE connection (useResearchChat);
+ *             this hook is the pure reducer that turns stream events
+ *             (stage / citations / RUN_FINISHED / RUN_ERROR) into the
+ *             transient run state the UI renders. No separate WebSocket.
+ * Dependencies: @tanstack/react-query, utils/parse-citations.ts
  * Scope:      Research run flow.
  */
 
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useResearchWs } from "../hooks/use-research-ws";
 import { getRunDetail } from "../research-service";
-import type { Citation } from "../utils/ws-adapter";
+import type { Citation } from "../utils/parse-citations";
 
 export type { Citation };
+
+/** Events the chat SSE stream emits that this reducer understands. */
+export type RunEvent =
+  | { type: "STAGE"; stage: string }
+  | { type: "CITATIONS"; runId: string; citations: Citation[] }
+  | { type: "RUN_FINISHED"; runId: string }
+  | { type: "RUN_ERROR"; code: string; message: string };
 
 export interface ResearchRunState {
   status: "idle" | "connecting" | "running" | "complete" | "error";
   stages: string[];
-  answer: string | null;
   citations: Citation[];
   runId: string | null;
   error: string | null;
@@ -30,7 +35,6 @@ export interface ResearchRunState {
 const INITIAL_STATE: ResearchRunState = {
   status: "idle",
   stages: [],
-  answer: null,
   citations: [],
   runId: null,
   error: null,
@@ -38,56 +42,47 @@ const INITIAL_STATE: ResearchRunState = {
 
 export function useResearchRun() {
   const [state, setState] = useState<ResearchRunState>(INITIAL_STATE);
-  const { startRun, abort } = useResearchWs();
   const queryClient = useQueryClient();
 
-  const startResearch = useCallback(
-    (question: string, onRunComplete?: (runId: string) => void) => {
-      setState({ ...INITIAL_STATE, status: "connecting" });
+  /** Reset run state before a new question is submitted via SSE. */
+  const beginRun = useCallback(() => {
+    setState({ ...INITIAL_STATE, status: "connecting" });
+  }, []);
 
-      startRun(question, {
-        onStage: (stage) => {
-          setState((prev) => ({
-            ...prev,
-            status: "running",
-            stages: [...prev.stages, stage],
-          }));
-        },
-        onAnswer: (runId, text, citations) => {
-          setState((prev) => ({
-            ...prev,
-            status: "complete",
-            answer: text,
-            citations,
-            runId,
-          }));
-          onRunComplete?.(runId);
-          queryClient.setQueryData(["run", runId], {
-            run_id: runId,
-            question,
-            answer: text,
-            status: "complete",
-            citations: citations.map((c) => ({ chunk_id: c.chunk_id })),
-            created_at: new Date().toISOString(),
-          });
-        },
-        onError: (message) => {
-          setState((prev) => ({ ...prev, status: "error", error: message }));
-        },
-        onDone: () => {
-          // Final handled by onAnswer; this is a trailing signal.
-        },
+  /** Fold one stream event into run state. */
+  const applyEvent = useCallback(
+    (event: RunEvent) => {
+      if (event.type === "RUN_FINISHED") {
+        // The run is persisted server-side; drop any stale list snapshot so the
+        // runs page refetches and shows it.
+        queryClient.invalidateQueries({ queryKey: ["runs"] });
+      }
+
+      setState((prev) => {
+        switch (event.type) {
+          case "STAGE":
+            return {
+              ...prev,
+              status: "running",
+              stages: prev.stages.includes(event.stage)
+                ? prev.stages
+                : [...prev.stages, event.stage],
+            };
+          case "CITATIONS":
+            return { ...prev, citations: event.citations, runId: prev.runId ?? event.runId };
+          case "RUN_FINISHED":
+            return { ...prev, status: "complete", runId: prev.runId ?? event.runId };
+          case "RUN_ERROR":
+            return { ...prev, status: "error", error: event.message };
+        }
       });
     },
-    [startRun, queryClient],
+    [queryClient],
   );
 
-  const reset = useCallback(() => {
-    abort();
-    setState(INITIAL_STATE);
-  }, [abort]);
+  const reset = useCallback(() => setState(INITIAL_STATE), []);
 
-  return { state, startResearch, reset, abort };
+  return { state, beginRun, applyEvent, reset };
 }
 
 export function useRunDetail(runId: string | null) {

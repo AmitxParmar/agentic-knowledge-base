@@ -31,8 +31,9 @@ For the execution order (week 1 / week 2) and detailed hook behavior, see
 The backend is functionally complete for the MVP core loop:
 - `POST /api/ingestion/upload` (multipart, async via arq)
 - `GET /api/ingestion/jobs/{job_id}` (polls a `JobStage` enum)
-- `WS /api/research/ws` (streams the fixed four-stage vocabulary, then
-  `{type:"answer"}` with citations)
+- `POST /api/research/chat` (AG-UI SSE stream: stages → answer → citations)
+- `WS /api/research/ws` (legacy; streams the fixed four-stage vocabulary,
+  then `{type:"answer"}` with citations — manual testing only)
 - `GET /api/research/runs/{run_id}` (fetch a completed run)
 
 Auth is a dev stub — every request is silently scoped to
@@ -81,25 +82,39 @@ none), `docs/conventions.md` feature-first structure.
 ```
 POST   /api/ingestion/upload        multipart(file, source_type) → {document_id, job_id, status}
 GET    /api/ingestion/jobs/{id}     → {stage, error?}
-WS     /api/research/ws             {question} → progress* → answer → done|error
+POST   /api/research/chat           {question, threadId} → AG-UI SSE stream (primary)
+WS     /api/research/ws             {question} → progress* → answer → done|error (legacy)
 GET    /api/research/runs/{id}      → {run_id, question, answer, status, citations[], created_at}
 GET    /health                      → {status:"ok"}
 ```
 
 Workspace scoping: optional `X-Workspace-Id` header; omit → dev workspace.
 
-### WebSocket message schema
+### Research-stream message schema (AG-UI over SSE)
+
+The research loop is a single POST that opens a one-way Server-Sent Events stream
+(`POST /api/research/chat`). The client is TanStack AI's `useChat` over a
+`fetchServerSentEvents` connection; the backend emits typed AG-UI events.
 
 ```
-client → server:  { "question": "..." }
-server → client:  { "type": "progress", "stage": "<one of 4 fixed strings>" }
-server → client:  { "type": "answer", "run_id", "text", "citations": [{chunk_id, source_ref, relevance_score}] }
-server → client:  { "type": "done" }
-server → client:  { "type": "error", "message" }
+client → server:  POST /api/research/chat  { "question": "...", "threadId": "..." }
+server → client:  RUN_STARTED
+server → client:  TEXT_MESSAGE_START
+server → client:  CUSTOM  name="stage"  value={"stage":"Searching documents..."}
+server → client:  CUSTOM  name="stage"  value={"stage":"Reviewing evidence..."}
+server → client:  CUSTOM  name="stage"  value={"stage":"Generating report..."}
+server → client:  CUSTOM  name="stage"  value={"stage":"Finalizing answer..."}
+server → client:  CUSTOM  name="citations"  value={run_id, citations:[{chunk_id, source_ref, relevance_score}]}
+server → client:  TEXT_MESSAGE_CONTENT  delta="the answer…"
+server → client:  TEXT_MESSAGE_END
+server → client:  RUN_FINISHED          (or RUN_ERROR on failure)
 ```
 
 The four fixed stage strings (frozen in `apps/api/src/shared/progress.py`):
 `Searching documents...` → `Reviewing evidence...` → `Generating report...` → `Finalizing answer...`
+
+> The legacy WebSocket endpoint (`/api/research/ws`) still exists for `wscat`-style
+> manual testing, but the product path is SSE.
 
 ---
 
@@ -151,11 +166,12 @@ apps/web/
 │       │   ├── query-client.ts             ADD  global QueryClient (retry:1, staleTime:5s)
 │       │   ├── use-upload.ts               ADD  mutation → POST /upload; onSuccess start job polling
 │       │   ├── use-job-status.ts           ADD  query polling GET /jobs/{id} (3s; stop on done|failed)
-│       │   ├── use-research-run.ts         ADD  WS lifecycle → stages[], answer, error
-│       │   └── use-run-detail.ts           ADD  query GET /runs/{id} for hydration/refetch
+│       │   ├── use-research-chat.ts        ADD  TanStack useChat over SSE (onCustomEvent/onChunk)
+│       │   ├── use-research-run.ts         ADD  reducer folding stream events → stages[], citations, status
+│       │   ├── use-run-detail.ts           ADD  query GET /runs/{id} for hydration/refetch
+│       │   └── research-tools.ts           ADD  client tools (clearHistory, copyAnswer)
 │       │
 │       ├── hooks/
-│       │   ├── use-research-ws.ts          ADD  raw WS wrapper (lifecycle guards, safe JSON, abort)
 │       │   ├── use-workspace-id.ts          ADD  returns dev ID (MVP seam; JWT later)
 │       │   └── use-auto-scroll.ts           ADD  scroll-to-bottom on stage updates
 │       │
@@ -173,8 +189,7 @@ apps/web/
 │       │   └── empty-state.tsx              ADD  reusable empty state
 │       │
 │       ├── utils/
-│       │   ├── parse-citations.ts           ADD  group citation[] by document+chunk for display order
-│       │   └── ws-adapter.ts                ADD  parse WS messages into typed events
+│       │   └── parse-citations.ts           ADD  group citation[] by document+chunk for display order
 │       │
 │       └── research-service.ts             ADD  fetch wrapper injecting workspace-id header
 │
@@ -210,12 +225,14 @@ export function withAuth<P extends object>(Component: React.ComponentType<P>) {
 }
 ```
 
-### WebSocket ownership
+### Stream ownership
 
-`use-research-ws` owns transient stages via local state (not React Query —
-stages are transient events, not server state). The completed `run_id` is
-written into the React Query cache so `/runs/{id}` can hydrate on
-navigation/back without re-running.
+`use-research-chat` (TanStack AI `useChat` over an SSE connection) owns the
+stream. Stage and citation events arrive through the SDK's `onCustomEvent`
+callback and are folded into transient run state by `use-research-run`; the
+answer arrives as standard chat message text. The completed `run_id` is written
+into the React Query cache so `/runs/{id}` can hydrate on navigation/back
+without re-running.
 
 ---
 
@@ -234,7 +251,7 @@ navigation/back without re-running.
 
 ## What Phase 1 explicitly does NOT do
 
-- No TanStack AI (Phase 2, new ADR).
+- TanStack AI is in use for the research chat (AG-UI SSE) — but `@tanstack/ai-persistence` (resumable streams) is deferred.
 - No `GET /ingestion/chunks/{id}` endpoint (would let citations show full passage — deferred).
 - No `/library` or `/runs` data (empty states only).
 - No new agents (PRD Non-Goals).
@@ -259,8 +276,7 @@ navigation/back without re-running.
 
 | Variable | Required | Default | Used for |
 |---|---|---|---|
-| `NEXT_PUBLIC_API_BASE_URL` | yes | `http://localhost:8000` | REST calls (upload, job status, run detail) |
-| `NEXT_PUBLIC_WS_BASE_URL` | no | derived from API base (`http`→`ws`, `https`→`wss`) | WebSocket connection |
+| `NEXT_PUBLIC_API_BASE_URL` | yes | `http://localhost:8000` | REST calls (upload, job status, run detail) and the SSE research stream |
 
 Runtime validation at boot throws a clear error if the API base URL is
 missing — fails fast instead of producing cryptic network errors.

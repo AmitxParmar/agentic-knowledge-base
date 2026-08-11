@@ -100,6 +100,23 @@ export async function listDocuments(limit = 50, offset = 0): Promise<DocumentLis
   return response.json();
 }
 
+export async function searchableDocumentsExist(): Promise<boolean> {
+  const params = new URLSearchParams({
+    processing_status: "done",
+    limit: "1",
+    offset: "0",
+  });
+  const response = await fetch(`${API_BASE_URL}/api/ingestion/documents?${params}`, {
+    method: "GET",
+    headers: getWorkspaceHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Document status check failed: ${response.statusText}`);
+  }
+  const data = (await response.json()) as DocumentList;
+  return data.total > 0;
+}
+
 export async function deleteDocument(documentId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/ingestion/documents/${documentId}`, {
     method: "DELETE",

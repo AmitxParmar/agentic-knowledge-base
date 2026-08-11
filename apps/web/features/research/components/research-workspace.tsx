@@ -11,12 +11,13 @@
 
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ConversationSidebar } from "./conversation-sidebar";
 import { UploadComposer } from "./upload-composer";
 import { ResearchChat } from "./research-chat";
 import { useConversations } from "../api/use-conversations";
-import { useResearchRun } from "../api/use-research-run";
+import { useResearchRun, type RunEvent } from "../api/use-research-run";
+import { searchableDocumentsExist } from "../research-service";
 import styles from "./research-workspace.module.css";
 
 export function ResearchWorkspace() {
@@ -34,18 +35,49 @@ export function ResearchWorkspace() {
     linkRun,
   } = useConversations();
 
+  // Hydrate readiness from server state: if the workspace already has
+  // searchable documents, skip the upload gate on mount. Failures fall back
+  // to the cold-start behavior (show upload, not ready).
+  useEffect(() => {
+    let cancelled = false;
+    searchableDocumentsExist()
+      .then((exists) => {
+        if (cancelled) return;
+        if (exists) {
+          setReady(true);
+          setShowUpload(false);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Citation metadata flows from the research run into the chat thread so
   // [n] markers resolve to source references. Progress stages display inline
-  // in the active answer while a run is streaming. On completion, the run is
-  // linked to the active thread for server-side history.
-  const { state: runState, startResearch } = useResearchRun();
+  // in the active answer while a run is streaming. Run state is driven by the
+  // chat SSE stream (stages / citations / RUN_FINISHED / RUN_ERROR) — the
+  // single execution path, no WebSocket.
+  const { state: runState, beginRun, applyEvent } = useResearchRun();
 
   const handleQuestion = useCallback(
     (prompt: string) => {
       ensureThread(activeThreadId, prompt);
-      startResearch(prompt, (runId) => linkRun(activeThreadId, runId));
+      beginRun();
     },
-    [activeThreadId, ensureThread, startResearch, linkRun],
+    [activeThreadId, ensureThread, beginRun],
+  );
+
+  const handleRunEvent = useCallback(
+    (event: RunEvent) => {
+      applyEvent(event);
+      // Link the completed run to the active thread for server-side history.
+      if (event.type === "RUN_FINISHED" && event.runId) {
+        linkRun(activeThreadId, event.runId);
+      }
+    },
+    [applyEvent, activeThreadId, linkRun],
   );
 
   return (
@@ -107,6 +139,7 @@ export function ResearchWorkspace() {
           runStatus={runState.status}
           disabled={!ready}
           onQuestion={handleQuestion}
+          onRunEvent={handleRunEvent}
           onMessagesChange={(msgs) => syncMessages(activeThreadId, msgs)}
         />
       </section>

@@ -17,8 +17,8 @@ import { useEffect, useRef, useState } from "react";
 import { useResearchChat } from "../api/use-research-chat";
 import { CitationRef } from "./citation-ref";
 import { ProgressStageList } from "./progress-stage-list";
-import { groupCitations, type GroupedCitation } from "../utils/parse-citations";
-import type { Citation } from "../utils/ws-adapter";
+import { groupCitations, type Citation, type GroupedCitation } from "../utils/parse-citations";
+import type { RunEvent } from "../api/use-research-run";
 import type { UIMessage } from "@tanstack/ai-client";
 import styles from "./research-chat.module.css";
 
@@ -62,6 +62,7 @@ export function ResearchChat({
   runStatus,
   disabled,
   onQuestion,
+  onRunEvent,
   onMessagesChange,
 }: {
   threadId: string;
@@ -71,9 +72,14 @@ export function ResearchChat({
   runStatus: "idle" | "connecting" | "running" | "complete" | "error";
   disabled: boolean;
   onQuestion: (prompt: string) => void;
+  onRunEvent: (event: RunEvent) => void;
   onMessagesChange: (messages: UIMessage[]) => void;
 }) {
-  const { messages, sendMessage, isLoading, error, stop, clear } = useResearchChat(threadId, initialMessages);
+  const { messages, sendMessage, isLoading, error, stop, clear } = useResearchChat(
+    threadId,
+    initialMessages,
+    onRunEvent,
+  );
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 

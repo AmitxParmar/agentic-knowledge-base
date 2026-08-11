@@ -63,12 +63,12 @@ passes.
 
 | Order | Deliverable | Files |
 |---|---|---|
-| 15 | `features/research/hooks/use-research-ws.ts` (lifecycle guards, safe JSON, abort) | `features/research/hooks/*` |
-| 16 | `features/research/hooks/use-workspace-id.ts` (MVP seam) | `features/research/hooks/*` |
-| 17 | `features/research/hooks/use-auto-scroll.ts` | `features/research/hooks/*` |
-| 18 | `features/research/utils/ws-adapter.ts` (typed event parsing) | `features/research/utils/*` |
-| 19 | `features/research/utils/parse-citations.ts` (group by document+chunk) | `features/research/utils/*` |
-| 20 | `features/research/api/use-research-run.ts` (WS lifecycle → stages[], answer, error) | `features/research/api/*` |
+| 15 | `features/research/api/use-research-chat.ts` (TanStack useChat over SSE) | `features/research/api/*` |
+| 16 | `features/research/api/use-research-run.ts` (reducer folding stream events → stages[], citations, status) | `features/research/api/*` |
+| 17 | `features/research/api/research-tools.ts` (client tools: clearHistory, copyAnswer) | `features/research/api/*` |
+| 18 | `features/research/hooks/use-workspace-id.ts` (MVP seam) | `features/research/hooks/*` |
+| 19 | `features/research/hooks/use-auto-scroll.ts` | `features/research/hooks/*` |
+| 20 | `features/research/utils/parse-citations.ts` (group by document+chunk) | `features/research/utils/*` |
 | 21 | `features/research/api/use-run-detail.ts` (GET /runs/{id} hydration) | `features/research/api/*` |
 | 22 | `features/research/components/question-composer.tsx` | `features/research/components/*` |
 | 23 | `features/research/components/citation-ref.tsx` (`[n]` button + hover popover) | `features/research/components/*` |
@@ -98,22 +98,28 @@ screen-reader pass complete.
 - Stops polling when `stage === 'done' || stage === 'failed'`
   (set `refetchInterval: false` in that case).
 
+### `useResearchChat`
+- TanStack AI `useChat` over a `fetchServerSentEvents` connection to
+  `POST /api/research/chat`.
+- `onCustomEvent("stage", …)` and `onCustomEvent("citations", …)` forward
+  AG-UI CUSTOM events to the run reducer; `onChunk` handles `RUN_FINISHED` /
+  `RUN_ERROR`.
+- The answer text flows through `useChat`'s standard message state.
+
 ### `useResearchRun`
-- Opens a WebSocket to `WS_BASE_URL/api/research/ws`.
-- Sends `{ question }` on `onopen`.
-- Accumulates `{type:"progress"}` events into a local `stages[]` array
-  (NOT React Query — stages are transient events, not server state).
-- On `{type:"answer"}`: stores `text`, `citations`, and `run_id` in the
-  React Query cache under the `['run', run_id]` key so `useRunDetail`
-  can hydrate on navigation/back without re-running.
-- On `{type:"error"}`: surfaces error message, sets idle.
-- Exposes: `{ status, stages[], answer, citations, error, startRun, abort }`.
+- A pure reducer folding stream events into transient local state
+  (`status`, `stages[]`, `citations`, `runId`, `error`) — NOT React Query,
+  because stages are transient events, not server state.
+- On `RUN_FINISHED`: writes the `run_id` into the React Query cache so
+  `useRunDetail` can hydrate on navigation/back without re-running, and
+  invalidates the `['runs']` list.
+- Exposes: `{ state, beginRun, applyEvent, reset }`.
 
 ### `useRunDetail(runId)`
 - TanStack `useQuery` → `GET /api/research/runs/{id}`.
 - `enabled: !!runId`.
-- Initial data is seeded from `useResearchRun`'s cache write when the WS
-  answer arrives (no extra network call on first render after a run).
+- Initial data is seeded from the `RUN_FINISHED` cache write (no extra
+  network call on first render after a run).
 
 ### Query client defaults
 ```ts
@@ -132,8 +138,7 @@ new QueryClient({
 
 | Variable | Required | Default | Used for |
 |---|---|---|---|
-| `NEXT_PUBLIC_API_BASE_URL` | yes | `http://localhost:8000` | REST calls (upload, job status, run detail) |
-| `NEXT_PUBLIC_WS_BASE_URL` | no | derived from API base (`http`→`ws`, `https`→`wss`) | WebSocket connection |
+| `NEXT_PUBLIC_API_BASE_URL` | yes | `http://localhost:8000` | REST calls (upload, job status, run detail) and the SSE research stream |
 
 Runtime validation at boot throws a clear error if the API base URL is
 missing — fails fast instead of producing cryptic network errors.
