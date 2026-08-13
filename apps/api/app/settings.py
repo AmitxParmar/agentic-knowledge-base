@@ -59,6 +59,14 @@ class Settings(BaseSettings):
         default="rerank-multilingual-v3.0",
         description="Cohere rerank model",
     )
+    # When False (default) a Cohere embed/rerank failure raises a typed error and
+    # fails the ingestion job loudly. When True, dev/test runs without a Cohere
+    # key degrade to hash-based embeddings / cosine rerank so the pipeline still
+    # completes. Never ship fallback output to production users.
+    ALLOW_EMBEDDING_FALLBACK: bool = Field(
+        default=False,
+        description="Permit hash/cosine fallbacks when Cohere is unavailable (dev only)",
+    )
 
     # Embedding vector dimensionality — must match chunks.embedding column
     # (migration uses vector(EMBEDDING_DIM)). Cohere embed-v3 produces 1024 dims.

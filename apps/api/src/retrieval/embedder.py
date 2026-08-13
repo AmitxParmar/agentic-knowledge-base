@@ -3,10 +3,12 @@ retrieval/embedder.py
 ---------------------
 Purpose:    Embedding and reranking clients backed by Cohere.
         Embeddings use Cohere embed-v3 (1024 dims). Reranking uses
-        Cohere rerank-v3, a real cross-encoder — replacing the old
-        LM Studio / similarity fallback stack.
+        Cohere rerank-v3, a real cross-encoder.
 Dependencies: cohere, settings
 Scope:      embed_texts() → vectors, embed_query() → vector, rerank() → scores.
+Fallback:   `ALLOW_EMBEDDING_FALLBACK` (default false) — when false a provider
+        failure raises `EmbeddingError` and fails ingestion loudly instead of
+        persisting hash/cosine vectors. Dev-only escape hatch for no-key runs.
 """
 
 from __future__ import annotations
@@ -27,6 +29,12 @@ logger = logging.getLogger(__name__)
 
 _EMBED_DIM = settings.EMBEDDING_DIM
 _EMBED_BATCH_SIZE = settings.EMBED_BATCH_SIZE
+
+
+class EmbeddingError(Exception):
+    """Provider-agnostic embedding/rerank failure. Raised when the provider is
+    unreachable AND fallback is disabled, so ingestion fails loudly instead of
+    persisting semantically-meaningless fallback vectors into the index."""
 
 
 def _cohere_client() -> Any:
@@ -121,11 +129,15 @@ async def _embed_batch(texts: list[str], input_type: str) -> list[list[float]]:
     except TimeoutError:
         logger.warning("embedder: embedding timed out after %ss", settings.RETRIEVAL_EMBED_TIMEOUT)
         logfire.warning("embedder.embed.timeout", batch_size=len(texts))
-        return _local_embed(texts)
-    except Exception:
+        if settings.ALLOW_EMBEDDING_FALLBACK:
+            return _local_embed(texts)
+        raise EmbeddingError("Embedding timed out and fallback is disabled") from None
+    except Exception as exc:
         logger.warning("embedder: Cohere embedding unavailable, using local fallback")
         logfire.warning("embedder.embed.fallback", provider="local_hash", reason="Cohere unreachable")
-        return _local_embed(texts)
+        if settings.ALLOW_EMBEDDING_FALLBACK:
+            return _local_embed(texts)
+        raise EmbeddingError(f"Embedding provider unavailable: {exc}") from exc
 
 
 async def _embed_once(texts: list[str], input_type: str) -> list[list[float]]:
@@ -183,11 +195,15 @@ async def rerank(query: str, passages: list[str], *, top_k: int | None = None) -
     except TimeoutError:
         logger.warning("rerank: timed out after %ss", settings.RETRIEVAL_RERANK_TIMEOUT)
         logfire.warning("embedder.rerank.timeout", passages=len(passages))
-        return await _cosine_fallback(query, passages)
-    except Exception:
+        if settings.ALLOW_EMBEDDING_FALLBACK:
+            return await _cosine_fallback(query, passages)
+        raise EmbeddingError("Rerank timed out and fallback is disabled") from None
+    except Exception as exc:
         logger.warning("Cohere reranker unavailable, using cosine fallback")
         logfire.warning("embedder.rerank.fallback", provider="cosine", reason="Cohere unreachable")
-        return await _cosine_fallback(query, passages)
+        if settings.ALLOW_EMBEDDING_FALLBACK:
+            return await _cosine_fallback(query, passages)
+        raise EmbeddingError(f"Rerank provider unavailable: {exc}") from exc
 
 
 async def _rerank_once(query: str, passages: list[str], top_k: int | None) -> list[float]:

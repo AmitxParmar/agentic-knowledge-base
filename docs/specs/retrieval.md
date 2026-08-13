@@ -78,10 +78,15 @@ Chunk texts are embedded in batches of `EMBED_BATCH_SIZE` (default 64,
 Cohere limit 96). Concurrency is capped by `embed_semaphore` (max 4
 concurrent Cohere calls) defined in `src/shared/rate_limit.py`.
 
-### Rerank Degradation
-If the Cohere rerank call times out or raises a provider error, the pipeline
-falls back to cosine similarity ordering so the agent always receives
-candidate chunks (possibly lower precision) rather than a hard failure.
+### Fallback Policy (embed + rerank)
+By default (`ALLOW_EMBEDDING_FALLBACK=false`, production) a Cohere embed or
+rerank failure — after the retry/backoff budget is exhausted — raises a
+typed `EmbeddingError`. The ingestion pipeline catches it and marks the job
+`failed` rather than persisting semantically-meaningless hash/cosine vectors
+into the index. Set `ALLOW_EMBEDDING_FALLBACK=true` **only in dev/test** to
+let the pipeline complete without a Cohere key (hash-based embeddings /
+cosine ranking). Fallback output is a development convenience, never
+production-quality evidence.
 
 ### Vector Search Timeout → `RetrievalError`
 `vector_search()` wraps the pgvector `session.execute()` call in

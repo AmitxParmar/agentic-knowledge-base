@@ -447,6 +447,57 @@ class TestEmbeddingBatching:
         assert len(vectors) == len(texts)
 
 
+class TestEmbeddingFallbackPolicy:
+    """When ALLOW_EMBEDDING_FALLBACK=False, provider failures raise a typed
+    EmbeddingError instead of silently degrading to hash/cosine output."""
+
+    @pytest.mark.asyncio
+    async def test_embed_fails_loud_when_fallback_disabled(self) -> None:
+        from src.retrieval import embedder
+
+        async def _boom(texts: list[str], input_type: str) -> list[list[float]]:
+            raise ConnectionError("cohere down")
+
+        with (
+            patch.object(embedder.settings, "ALLOW_EMBEDDING_FALLBACK", False),
+            patch("src.retrieval.embedder._embed_once", side_effect=_boom),
+            patch("src.retrieval.embedder.embed_semaphore", return_value=asyncio.Semaphore(4)),
+            pytest.raises(embedder.EmbeddingError),
+        ):
+            await embedder.embed_texts(["hello"])
+
+    @pytest.mark.asyncio
+    async def test_embed_falls_back_when_enabled(self) -> None:
+        from src.retrieval import embedder
+
+        async def _boom(texts: list[str], input_type: str) -> list[list[float]]:
+            raise ConnectionError("cohere down")
+
+        with (
+            patch.object(embedder.settings, "ALLOW_EMBEDDING_FALLBACK", True),
+            patch("src.retrieval.embedder._embed_once", side_effect=_boom),
+            patch("src.retrieval.embedder.embed_semaphore", return_value=asyncio.Semaphore(4)),
+        ):
+            vectors = await embedder.embed_texts(["hello"])
+
+        assert len(vectors) == 1
+        assert len(vectors[0]) == embedder._EMBED_DIM
+
+    @pytest.mark.asyncio
+    async def test_rerank_fails_loud_when_fallback_disabled(self) -> None:
+        from src.retrieval import embedder
+
+        async def _boom(query: str, passages: list[str], top_k: int | None) -> list[float]:
+            raise ConnectionError("cohere down")
+
+        with (
+            patch.object(embedder.settings, "ALLOW_EMBEDDING_FALLBACK", False),
+            patch("src.retrieval.embedder._rerank_once", side_effect=_boom),
+            pytest.raises(embedder.EmbeddingError),
+        ):
+            await embedder.rerank("q", ["a", "b"])
+
+
 class TestPDFParseTimeout:
     """PDF parsing timeout should produce a 408/422 response (not 500)."""
 

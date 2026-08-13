@@ -32,10 +32,10 @@
 |---|---|---|
 | Clients | Minimal web | Partial Next.js UI |
 | API Gateway | FastAPI REST + SSE (AG-UI) | Done (rate limits + `/healthz` + `/readyz` wired) |
-| Retrieval | Hybrid + rerank | Partial (fallbacks, no tsv GIN) |
+| Retrieval | Hybrid + rerank | **Done** | Cohere embed/rerank; persisted `tsv` + GIN |
 | Orchestration | 1 Research Agent | Done (no Planner / Critic) |
 | Memory | — | Deferred |
-| Storage | PG + vectors + FS | Partial (tsv / Turbovec gaps) |
+| Storage | PG + vectors + FS | **Done** | pgvector on `chunks.embedding`; raw files in R2/local |
 | Ingestion | arq 6-stage | Code done; E2E unproven |
 | Model Gateway | Swappable | Done (Groq → OpenRouter) |
 | MCP tools | — | Deferred |
@@ -48,8 +48,8 @@
 ## Suggested order
 
 ```text
-1. DB: upgrade + seed + tsvector migration          ← unblocks BM25 quality
-2. Embed/rerank real endpoints (kill hash fallback) ← unblocks meaningful search
+1. DB: upgrade + seed + tsvector migration          ← **done** (GIN index applied)
+2. Embed/rerank real endpoints (kill hash fallback) ← **done** (Cohere, no silent fallback in prod)
 3. Worker + upload PDF E2E                          ← unblocks retrieval
 4. retrieve() smoke + research agent + SSE          ← MVP success criteria (verified 2026-08-09)
 5. Browser path via apps/web                        ← non-dev testing
@@ -104,20 +104,19 @@
 | Item | Status | Notes |
 |---|---|---|
 | HyDE query rewrite | Done | Via Model Gateway |
-| Hybrid dense + BM25 + RRF | Partial | BM25 uses `to_tsvector` on the fly — no persisted `tsv` + GIN in migration |
+| Hybrid dense + BM25 + RRF | **Done** | BM25 uses the persisted `chunks.tsv` generated column + GIN index (migration `a1b2c3d4e5f6`), not `to_tsvector` on the fly |
 | Workspace ID allowlist filter | Done | In hybrid search path |
 | Vector search timeout | **Done** | `asyncio.wait_for(RETRIEVAL_VECTOR_SEARCH_TIMEOUT=5s)` in `src/retrieval/vector_index.py`; timeout → `RetrievalError` |
-| Cross-encoder rerank (BGE-Reranker) | Partial | Code path exists; falls back when LM Studio / TEI down |
-| BGE-M3 embeddings | Partial | Real client + hash embedding fallback if LM Studio unreachable |
-| Turbovec ANN | Partial | Wrapper + numpy cosine fallback if turbovec missing |
-| Rebuild index from Postgres on startup | Done | Lifespan in `main.py` |
+| Embed + rerank (Cohere) | **Done** | Cohere embed-v3 + rerank-v3 (commit `8411dfa`); `ALLOW_EMBEDDING_FALLBACK=false` default → provider failure fails the ingestion job loudly (`EmbeddingError`) instead of persisting hash/cosine fallback vectors |
+| Dense vector store (pgvector) | **Done** | Embeddings persisted on `chunks.embedding` (pgvector); no in-memory Turbovec / numpy fallback — the Postgres column IS the index |
+| Rebuild index from Postgres on startup | Done | Lifespan in `main.py` (no-op — no rebuild needed) |
 
 ### Checklist (critical for real quality)
 
-- [ ] Migration: `chunks.tsv` + GIN + trigger (ROADMAP Step 4; missing today)
-- [ ] Run real BGE embed + rerank services (TEI or LM Studio); stop relying on hash/uniform fallbacks
-- [ ] Install/verify Turbovec in the runtime used for demos
-- [ ] Integration proof: ranked results with real `source_ref` / `chunk_id`
+- [x] Migration: `chunks.tsv` + GIN (ROADMAP Step 4) — applied (`a1b2c3d4e5f6`, chain head `f2c8d4e6a9b1`)
+- [x] Real embed + rerank endpoints — Cohere embed-v3 / rerank-v3 (commit `8411dfa`); silent fallbacks removed in production (`ALLOW_EMBEDDING_FALLBACK=false`)
+- [x] Dense vector store — pgvector column, no Turbovec / numpy fallback
+- [ ] Integration proof: ranked results with real `source_ref` / `chunk_id` on a live DB
 
 ---
 
@@ -175,10 +174,10 @@ Nothing required for single-shot MVP.
 | Item | Status | Notes |
 |---|---|---|
 | PostgreSQL ORM models | Done | users, workspaces, documents, jobs, chunks, runs, citations |
-| Alembic initial migration | Partial | Tables exist; no tsvector infrastructure |
+| Alembic migrations | **Done** | Chain head `f2c8d4e6a9b1`: content_hash, thread_id, tsvector + GIN, pgvector embedding column |
 | Seed script | Done | `scripts/seed.py` |
 | Local raw file storage | Done | `UPLOAD_DIR` pattern |
-| Turbovec as durable vector store | Partial | Rebuildable from PG in principle; often numpy in dev |
+| Durable vector store | **Done** | pgvector on `chunks.embedding`; Postgres is the index — no separate Turbovec / numpy store |
 
 ### Checklist
 
