@@ -24,6 +24,7 @@ This agent only. Planner and Critic are separate future specs — see
 |---|---|
 | `answer` | The drafted response text |
 | `citations` | List of chunk references supporting specific claims in the answer |
+| `confidence` | `"sufficient"` or `"insufficient"` — whether the agent found adequate evidence |
 | progress events | Named stage events emitted during the run (see `docs/ui/ux.md`) |
 
 ## Tools (MVP)
@@ -45,10 +46,39 @@ enough evidence to answer or hits the iteration bound below.
   never a direct provider call (ADR-003).
 
 ## Constraints
-- **Iteration bound:** a fixed maximum number of retrieval calls per run.
-  This is a minimal stand-in for the V1 design's full Circuit Breaker (which
-  also bounds reflection passes and total cost) — those don't apply yet
-  since there's no Critic and no reflection loop to bound.
+
+### Iteration / Cost Bound
+- **`MAX_ITERATIONS`** (hard-coded 5): maximum retrieval calls per run.
+  When reached, the agent drafts its best answer from evidence gathered so
+  far and terminates — it does not continue searching.
+- Minimal stand-in for the V1 Circuit Breaker; no Critic or reflection loop
+  to bound yet.
+
+### Timeouts (Step 6 hardening)
+| Scope | Setting | Default |
+|---|---|---|
+| Overall agent run | `AGENT_RUN_TIMEOUT` | 60 s |
+| Per-iteration LLM call | `AGENT_ITERATION_TIMEOUT` | 30 s |
+
+`graph.ainvoke()` is wrapped in `asyncio.wait_for(AGENT_RUN_TIMEOUT)`.
+Each `complete_with_tools()` call is wrapped in
+`asyncio.wait_for(AGENT_ITERATION_TIMEOUT)`. On `asyncio.TimeoutError`
+the run is marked `failed` and a `RUN_ERROR` SSE event is emitted to
+the client.
+
+### Evidence Assessment
+After the loop, the agent evaluates whether retrieved evidence is
+sufficient to support a factual answer:
+- `confidence: "sufficient"` — citations were found and relevance scores
+  meet a minimum threshold.
+- `confidence: "insufficient"` — no citations or all relevance scores fall
+  below threshold. The agent explicitly tells the user evidence was thin
+  rather than fabricating an answer.
+
+The `confidence` field is stored on `research_runs` and surfaced to the
+frontend in the SSE event stream so the UI can display a warning banner
+when evidence was thin.
+
 - No multi-agent handoff: this agent runs start to finish alone.
 
 ## Success Criteria
@@ -56,8 +86,10 @@ enough evidence to answer or hits the iteration bound below.
   chunk.
 - The answer addresses the question asked (not a tangential restatement of
   retrieved content).
-- The run completes within the iteration bound — if evidence is
-  insufficient, the agent says so rather than fabricating an answer.
+- The run completes within `AGENT_RUN_TIMEOUT` (60 s) or terminates
+  cleanly with a `RUN_ERROR` event — it never hangs indefinitely.
+- When evidence is insufficient, `confidence` is `"insufficient"` and the
+  agent states this explicitly — it does not fabricate citations.
 - Every run is fully traced in Langfuse (inputs, tool calls, outputs).
 
 ## Out of Scope (MVP)

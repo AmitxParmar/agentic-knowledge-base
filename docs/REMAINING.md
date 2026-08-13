@@ -4,7 +4,7 @@
 > `docs/latest-architecture.html` (V1 design), `docs/PRD.md` (MVP boundary),
 > `ROADMAP.md`, specs, and the current `apps/` code.
 >
-> Last updated: 2026-08-09
+> Last updated: 2026-08-13
 
 ## Status legend
 
@@ -31,7 +31,7 @@
 | Zone | MVP target | Today |
 |---|---|---|
 | Clients | Minimal web | Partial Next.js UI |
-| API Gateway | FastAPI REST + SSE (AG-UI) | Done (no input guard / semantic cache) |
+| API Gateway | FastAPI REST + SSE (AG-UI) | Done (rate limits + `/healthz` + `/readyz` wired) |
 | Retrieval | Hybrid + rerank | Partial (fallbacks, no tsv GIN) |
 | Orchestration | 1 Research Agent | Done (no Planner / Critic) |
 | Memory | — | Deferred |
@@ -53,7 +53,7 @@
 3. Worker + upload PDF E2E                          ← unblocks retrieval
 4. retrieve() smoke + research agent + SSE          ← MVP success criteria (verified 2026-08-09)
 5. Browser path via apps/web                        ← non-dev testing
-6. Hardening (health, limits, retries)              ← before real users
+6. Hardening (health, limits, retries)              ← **substantially complete** (2026-08-13)
 7. Only then: Critic → Planner → cache → RBAC       ← V1 diagram features
 ```
 
@@ -86,10 +86,10 @@
 | FastAPI factory, CORS, `/health` | Done | `app/main.py` |
 | Ingestion + research routers mounted | Done | |
 | Auth (JWT / multi-user) | Partial | `auth/stub.py` single-tenant only |
-| Rate limiting | Remaining | ROADMAP F2; needs ADR |
+| Rate limiting | **Done** | Redis fixed-window; upload 5/min, chat 20/min per IP (`src/shared/rate_limit.py`) |
 | Input Guardrail (LLM Guard) | Deferred | PRD Non-Goals |
 | Semantic Cache Check (Redis vector) | Deferred | PRD Non-Goals |
-| Expanded `/health` (DB + Redis + BGE) | Remaining | F2 |
+| Expanded `/health` (DB + Redis + BGE) | **Done** | `/healthz` (liveness) + `/readyz` (Redis ping + DB SELECT 1) |
 
 ### Checklist
 
@@ -106,6 +106,7 @@
 | HyDE query rewrite | Done | Via Model Gateway |
 | Hybrid dense + BM25 + RRF | Partial | BM25 uses `to_tsvector` on the fly — no persisted `tsv` + GIN in migration |
 | Workspace ID allowlist filter | Done | In hybrid search path |
+| Vector search timeout | **Done** | `asyncio.wait_for(RETRIEVAL_VECTOR_SEARCH_TIMEOUT=5s)` in `src/retrieval/vector_index.py`; timeout → `RetrievalError` |
 | Cross-encoder rerank (BGE-Reranker) | Partial | Code path exists; falls back when LM Studio / TEI down |
 | BGE-M3 embeddings | Partial | Real client + hash embedding fallback if LM Studio unreachable |
 | Turbovec ANN | Partial | Wrapper + numpy cosine fallback if turbovec missing |
@@ -126,7 +127,7 @@
 |---|---|---|
 | LangGraph Research Agent (ReAct) | Done | `src/research/agent.py` |
 | Citation-at-retrieval | Done | Spec + integration test scaffolding |
-| Iteration bound (mini circuit breaker) | Partial | `MAX_ITERATIONS = 5` only |
+| Iteration bound (mini circuit breaker) | **Done** | `AGENT_RUN_TIMEOUT` (60 s) + `AGENT_ITERATION_TIMEOUT` (30 s) + evidence confidence gate |
 | SSE (AG-UI) progress stages | Done | Must match `ux.md` vocabulary |
 | Planner Agent | Deferred | Needs `docs/specs/planner.md` first |
 | Critic + reflection loop | Deferred | Needs `docs/specs/critic.md` first |
@@ -199,8 +200,8 @@ Nothing required for single-shot MVP.
 | Dedicated Metadata Extractor stage | Partial | Metadata fields on chunks; not a rich author/date/category service as in HTML |
 | Embed + persist stages | Done (code) | Depends on embedder quality |
 | Ingestion progress to client | Partial | Job poll stages; ensure UX strings match `ux.md` |
-| Retry (3×) on transient failure | Remaining | F2 |
-| File size / type validation | Remaining | F2 |
+| Retry (3×) on transient failure | **Done** | `src/shared/retry.py` — exponential backoff + jitter, selective by exception type |
+| File size / type validation | **Done** | PDF magic bytes, size, page count, encryption check in `src/ingestion/router.py`; client-side guard in `upload-composer.tsx` |
 
 ### Checklist
 

@@ -27,19 +27,19 @@ standalone agent.
 |---|---|
 | Input | The HyDE-expanded query, `workspace_id` |
 | Output | A fused, ranked candidate list of chunk references with scores |
-| How | Postgres pre-filters by metadata (workspace, document) into an ID allowlist. That allowlist is passed into Turbovec's dense search so filtering happens inside the scoring kernel. In parallel, Postgres full-text search (`tsvector`) runs BM25 keyword matching over the same allowlist. The two ranked lists are merged via Reciprocal Rank Fusion |
+| How | Postgres pre-filters by metadata (workspace, document) into an ID allowlist. That allowlist is passed into the dense vector search so filtering happens inside the scoring kernel. In parallel, Postgres full-text search (`tsvector`) runs BM25 keyword matching over the same allowlist. The two ranked lists are merged via Reciprocal Rank Fusion. The pgvector `session.execute()` is wrapped in `asyncio.wait_for(RETRIEVAL_VECTOR_SEARCH_TIMEOUT)` — a hung query re-raises as `RetrievalError`, not a raw 500. |
 
 ### 3. Rerank
 | | |
 |---|---|
 | Input | The fused candidate list |
 | Output | A re-scored, re-ordered final list |
-| How | BGE-Reranker-v2-m3, a self-hosted cross-encoder, re-scores the candidate pool with full cross-attention instead of dot-product similarity — maximizes precision in what gets passed to the agent |
+| How | Cohere rerank-v3, a cross-encoder, re-scores the candidate pool with full cross-attention instead of dot-product similarity. On provider timeout the pipeline degrades to cosine-similarity ordering so the agent always receives candidates. |
 
 ## Output Contract
 Each item returned to the Research Agent carries:
 - chunk text
-- `chunk_id` (joins to `chunks` in Postgres, and to its vector in Turbovec)
+- `chunk_id` (joins to `chunks` in Postgres)
 - source `document_id` and a human-readable reference (filename/page, or
   function/file for code)
 - relevance score
@@ -58,3 +58,43 @@ a separate lookup step.
 Semantic cache short-circuit (Redis), permission-aware scoped retrieval
 (RBAC), and any retrieval step triggered by a Planner or Critic — all
 Phase 2 per `PRD.md`.
+
+---
+
+## Hardening Features (Step 6)
+
+### Timeouts
+| Stage | Setting | Default |
+|---|---|---|
+| HyDE query rewrite | `MODEL_GATEWAY_TIMEOUT` | 30 s |
+| Embed batches | `RETRIEVAL_EMBED_TIMEOUT` | 20 s |
+| Rerank | `RETRIEVAL_RERANK_TIMEOUT` | 15 s |
+| Vector search (pgvector) | `RETRIEVAL_VECTOR_SEARCH_TIMEOUT` | 5 s |
+
+All values come from `app/settings.py` (single source of truth).
+
+### Batch Embedding
+Chunk texts are embedded in batches of `EMBED_BATCH_SIZE` (default 64,
+Cohere limit 96). Concurrency is capped by `embed_semaphore` (max 4
+concurrent Cohere calls) defined in `src/shared/rate_limit.py`.
+
+### Rerank Degradation
+If the Cohere rerank call times out or raises a provider error, the pipeline
+falls back to cosine similarity ordering so the agent always receives
+candidate chunks (possibly lower precision) rather than a hard failure.
+
+### Vector Search Timeout → `RetrievalError`
+`vector_search()` wraps the pgvector `session.execute()` call in
+`asyncio.wait_for(timeout=RETRIEVAL_VECTOR_SEARCH_TIMEOUT)`. On
+`asyncio.TimeoutError` it logs `vector_index.search.timeout` via Logfire
+and re-raises as `RetrievalError`. The retrieval pipeline's outer `except`
+block propagates the typed error to the router, which maps it to a
+user-visible `RETRIEVAL_ERROR` event — not a raw 500.
+
+### Observability Events
+The pipeline emits named Logfire spans at each stage:
+- `retrieval.pipeline` — full pipeline span with `workspace_id`
+- `embedder.embed` — per-batch with `batch_size` and `input_type`
+- `vector_index.search` — with `candidates` and `top_k`
+- `retrieval.selection` — with `input`, `output`, and `documents` counts
+- `vector_index.search.timeout` — warning on timeout (see above)
