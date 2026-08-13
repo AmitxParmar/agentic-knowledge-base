@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import random
 import struct
 from typing import Any
 
@@ -119,7 +118,7 @@ async def _embed_batch(texts: list[str], input_type: str) -> list[list[float]]:
                 OSError,
             ),
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("embedder: embedding timed out after %ss", settings.RETRIEVAL_EMBED_TIMEOUT)
         logfire.warning("embedder.embed.timeout", batch_size=len(texts))
         return _local_embed(texts)
@@ -181,7 +180,7 @@ async def rerank(query: str, passages: list[str], *, top_k: int | None = None) -
                 OSError,
             ),
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("rerank: timed out after %ss", settings.RETRIEVAL_RERANK_TIMEOUT)
         logfire.warning("embedder.rerank.timeout", passages=len(passages))
         return await _cosine_fallback(query, passages)

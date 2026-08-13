@@ -66,11 +66,11 @@ class Document(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    workspace: Mapped["Workspace"] = relationship(back_populates="documents")
-    ingestion_job: Mapped["IngestionJob | None"] = relationship(
+    workspace: Mapped[Workspace] = relationship(back_populates="documents")
+    ingestion_job: Mapped[IngestionJob | None] = relationship(
         back_populates="document", uselist=False
     )
-    chunks: Mapped[list["Chunk"]] = relationship(back_populates="document")
+    chunks: Mapped[list[Chunk]] = relationship(back_populates="document")
 
 
 class IngestionJob(Base):
@@ -91,7 +91,7 @@ class IngestionJob(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    document: Mapped["Document"] = relationship(back_populates="ingestion_job")
+    document: Mapped[Document] = relationship(back_populates="ingestion_job")
 
 
 class Chunk(Base):
@@ -119,5 +119,5 @@ class Chunk(Base):
     tsv: Mapped[str | None] = mapped_column(server_default=FetchedValue(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    document: Mapped["Document"] = relationship(back_populates="chunks")
-    citations: Mapped[list["Citation"]] = relationship(back_populates="chunk")
+    document: Mapped[Document] = relationship(back_populates="chunks")
+    citations: Mapped[list[Citation]] = relationship(back_populates="chunk")

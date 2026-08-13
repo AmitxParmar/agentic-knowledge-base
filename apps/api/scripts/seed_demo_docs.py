@@ -5,7 +5,6 @@ extract (pypdf) → chunk (simple) → embed (Cohere) → persist (Neon + B2).
 """
 import asyncio
 import re
-import shutil
 import uuid
 from pathlib import Path
 

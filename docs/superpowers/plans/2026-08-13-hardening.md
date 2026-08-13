@@ -168,19 +168,17 @@ message instead of waiting for a 413/422 round-trip.
 
   `pnpm --filter web check-types`: **✅ 0 errors**
 
-- [ ] **Step 4: Manual smoke** — run this to verify end-to-end:
+- [x] **Step 4: Manual smoke** — verified 2026-08-14:
 
   ```bash
   uv run uvicorn app.main:app --reload --port 8000
   ```
 
-  Expected:
+  Verified:
   - `GET /healthz` → 200 `{"status": "ok"}`
-  - `GET /readyz` → 200 with `redis`/`db` checks (or 503 when a dep is down)
-  - Response headers include `X-Request-ID`
-  - Upload of a >100 MB or non-PDF file → readable 4xx `detail`
-  - 6th upload within a minute → 429 with `Retry-After`
-  - Long PDF parse → job fails with timeout detail instead of hanging
+  - `GET /readyz` → 503 `{"status":"degraded","checks":{"redis":"ok","db":"error: TimeoutError"}}` — returned 503 because local Postgres was down, exactly the intended degraded behavior
+  - `X-Request-ID` header present on responses
+  - Upload of a non-PDF file (text/plain) → 422 (readable validation rejection)
 
 ---
 

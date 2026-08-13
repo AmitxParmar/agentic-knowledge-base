@@ -3,8 +3,6 @@ import uuid
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-import src.ingestion.models
-import src.research.models
 from src.auth.models import User, Workspace
 from src.shared.database import engine
 

@@ -113,7 +113,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/readyz", include_in_schema=False)
-    async def readyz() -> dict[str, Any]:
+    async def readyz() -> Response:
         """
         Readiness: verifies Redis and DB connectivity.
         Returns 200 only when all dependencies are reachable.

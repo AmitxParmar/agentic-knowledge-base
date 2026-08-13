@@ -63,11 +63,15 @@ def test_upload_document_queues_background_job() -> None:
 
     pool = SimpleNamespace(enqueue_job=AsyncMock(), close=AsyncMock())
 
-    with patch("src.ingestion.router.arq.create_pool", new=AsyncMock(return_value=pool)):
+    mock_reader = SimpleNamespace(is_encrypted=False, pages=[object()])
+
+    with patch("src.ingestion.router.arq.create_pool", new=AsyncMock(return_value=pool)), patch(
+        "src.ingestion.router.PdfReader", return_value=mock_reader
+    ):
         client = TestClient(app)
         response = client.post(
             "/api/ingestion/upload",
-            files={"file": ("sample.pdf", io.BytesIO(b"pdf-bytes"), "application/pdf")},
+            files={"file": ("sample.pdf", io.BytesIO(b"%PDF-1.4 sample"), "application/pdf")},
             data={"source_type": "pdf"},
         )
 

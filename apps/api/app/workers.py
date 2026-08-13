@@ -16,8 +16,8 @@ from typing import Any, ClassVar
 import logfire
 from arq.connections import RedisSettings
 
-from app.settings import settings
 import src.shared.models  # noqa: F401
+from app.settings import settings
 from src.ingestion.pipeline import run_ingestion_job
 
 

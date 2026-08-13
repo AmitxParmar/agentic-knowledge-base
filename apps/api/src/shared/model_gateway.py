@@ -20,7 +20,6 @@ import asyncio
 import json
 import logging
 import os
-import random
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -29,10 +28,9 @@ import logfire
 
 from app.settings import settings
 from src.shared.retry import (
-    NonRetryableError,
     RetryableError,
-    with_retry,
     is_retryable_exception,
+    with_retry,
 )
 
 logger = logging.getLogger(__name__)
@@ -203,10 +201,10 @@ async def _call_llm(
                     OSError,
                 ),
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("model_gateway: call timed out after %ss", settings.MODEL_GATEWAY_TIMEOUT)
             logfire.error("model_gateway.call.timeout", model=primary_model)
-            raise ProviderError("Model request timed out")
+            raise ProviderError("Model request timed out") from None
         except Exception as exc:  # surface any provider failure uniformly
             logger.exception("model_gateway: LiteLLM call failed")
             logfire.error("model_gateway.call.failed", model=primary_model, error=str(exc))
