@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 _CANDIDATE_POOL = 40
 _TOP_K_FINAL = 8
+# A single long document can flood the top slots after rerank. Capping how many
+# chunks any one document contributes forces the answer to draw from multiple
+# sources — better diversity, less source bias.
+_MAX_CHUNKS_PER_DOCUMENT = 3
 
 
 class RetrievalError(Exception):
@@ -36,6 +40,7 @@ class RetrievedChunk:
     chunk_text: str
     source_ref: str
     relevance_score: float
+    position: int = 0
 
 
 async def retrieve(
@@ -54,7 +59,8 @@ async def retrieve(
                 return []
 
             ranked = await _rerank_candidates(question, candidates)
-            return ranked[:top_k]
+            selected = _dedup_and_select(ranked, top_k)
+            return selected
     except Exception as exc:
         # Model-provider failures bubble up as typed gateway errors so routers
         # can map them to PROVIDER_ERROR / RATE_LIMIT. Everything else is an
@@ -173,6 +179,7 @@ async def _hydrate_chunks(turbovec_ids: list[str], session: AsyncSession) -> lis
                 chunk_text=chunk.text,
                 source_ref=_build_source_ref(doc, chunk),
                 relevance_score=0.0,
+                position=chunk.position,
             )
         )
     return hydrated
@@ -188,3 +195,38 @@ async def _rerank_candidates(question: str, candidates: list[RetrievedChunk]) ->
     for candidate, score in zip(candidates, scores, strict=True):
         candidate.relevance_score = score
     return sorted(candidates, key=lambda candidate: candidate.relevance_score, reverse=True)
+
+
+def _dedup_and_select(ranked: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
+    """Dedup near-duplicate chunks and cap per-document dominance.
+
+    Two overlapping chunks from the same document (adjacent positions) often
+    rerank next to each other — both would reach the model with near-identical
+    text, wasting context budget. We keep the higher-ranked one and drop its
+    neighbours. A per-document cap then forces source diversity so one long
+    document can't monopolize every slot.
+    """
+    selected: list[RetrievedChunk] = []
+    # Positions already kept per document, for adjacent-dedup.
+    kept_positions: dict[str, set[int]] = {}
+    doc_counts: dict[str, int] = {}
+
+    for chunk in ranked:
+        positions = kept_positions.setdefault(chunk.document_id, set())
+        if any(abs(chunk.position - kept) <= 1 for kept in positions):
+            continue
+        if doc_counts.get(chunk.document_id, 0) >= _MAX_CHUNKS_PER_DOCUMENT:
+            continue
+        positions.add(chunk.position)
+        doc_counts[chunk.document_id] = doc_counts.get(chunk.document_id, 0) + 1
+        selected.append(chunk)
+        if len(selected) >= top_k:
+            break
+
+    logfire.info(
+        "retrieval.selection",
+        input=len(ranked),
+        output=len(selected),
+        documents=len(doc_counts),
+    )
+    return selected

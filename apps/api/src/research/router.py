@@ -41,6 +41,7 @@ from src.retrieval.pipeline import RetrievalError
 from src.shared.database import get_session
 from src.shared.model_gateway import ProviderError, RateLimitError
 from src.shared.progress import ResearchStage, emit, emit_done, emit_error
+from src.shared.rate_limit import check_chat_rate_limit
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -262,11 +263,13 @@ async def agui_event_stream(
 
         # Citations carry source_ref + relevance_score for the UI to resolve
         # the [n] markers in the answer (ux.md citation display requirement).
+        # Confidence flags runs where evidence was thin so the UI can warn.
         yield {
             "type": "CUSTOM",
             "name": "citations",
             "value": {
                 "run_id": str(run.id),
+                "confidence": result.confidence,
                 "citations": [
                     {
                         "chunk_id": c["chunk_id"],
@@ -296,6 +299,7 @@ async def agui_event_stream(
 @router.post("/chat")
 async def research_chat(
     request: ChatRequest,
+    _rate: None = Depends(check_chat_rate_limit),
     workspace_id: uuid.UUID = Depends(get_workspace_id),
     user_id: uuid.UUID = Depends(get_user_id),
     session: AsyncSession = Depends(get_session),

@@ -6,17 +6,22 @@ Single-agent MVP research loop with LangGraph.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 import logfire
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph  # type: ignore[import-untyped]
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.settings import settings
+from src.observability.setup import agent_run_trace
 from src.research.checkpoint import get_saver
 from src.research.models import Citation
 from src.retrieval.pipeline import RetrievedChunk, retrieve
@@ -26,6 +31,19 @@ from src.shared.progress import ResearchStage
 logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = 5
+
+# Below this mean rerank score, retrieved chunks are deemed too tangential to
+# support a grounded answer. Tuned conservatively — Cohere rerank scores
+# relevant passages > 0.5 and near-irrelevant ones < 0.1, so 0.2 catches runs
+# where nothing actually matched the question.
+_RELEVANCE_THRESHOLD = 0.2
+
+# Served when the agent retrieved nothing at all — the unambiguous fabrication
+# risk. Hard-coded so a grounded refusal can never be overridden by the model.
+_INSUFFICIENT_EVIDENCE_RESPONSE = (
+    "I couldn't find sufficient evidence in your uploaded documents to answer "
+    "this question. Try rephrasing it, or upload documents that cover this topic."
+)
 
 
 class AgentState(TypedDict):
@@ -75,20 +93,23 @@ async def _researcher_node(state: AgentState, config: RunnableConfig) -> dict[st
     callback = configurable.get("_stage_callback")
 
     if state["iterations"] >= MAX_ITERATIONS:
-        final_msg = await complete_with_tools(
-            state["messages"]
-            + [
-                {
-                    "role": "user",
-                    "content": (
-                        "You have reached the maximum number of searches. "
-                        "Write the best answer you can from the gathered evidence. "
-                        "If evidence is insufficient, say so."
-                    ),
-                }
-            ],
-            tools=None,
-            max_tokens=2048,
+        final_msg = await asyncio.wait_for(
+            complete_with_tools(
+                state["messages"]
+                + [
+                    {
+                        "role": "user",
+                        "content": (
+                            "You have reached the maximum number of searches. "
+                            "Write the best answer you can from the gathered evidence. "
+                            "If evidence is insufficient, say so."
+                        ),
+                    }
+                ],
+                tools=None,
+                max_tokens=2048,
+            ),
+            timeout=settings.AGENT_ITERATION_TIMEOUT,
         )
         return {
             "answer": final_msg.content or "Insufficient evidence to answer.",
@@ -96,11 +117,14 @@ async def _researcher_node(state: AgentState, config: RunnableConfig) -> dict[st
             "tokens_used": state["tokens_used"] + _msg_tokens(final_msg),
         }
 
-    response = await complete_with_tools(
-        state["messages"],
-        tools=[_RETRIEVAL_TOOL],
-        temperature=0.1,
-        max_tokens=2048,
+    response = await asyncio.wait_for(
+        complete_with_tools(
+            state["messages"],
+            tools=[_RETRIEVAL_TOOL],
+            temperature=0.1,
+            max_tokens=2048,
+        ),
+        timeout=settings.AGENT_ITERATION_TIMEOUT,
     )
 
     if not response.tool_calls:
@@ -192,6 +216,7 @@ class AgentResult:
     citations: list[dict[str, Any]] = field(default_factory=list)
     iterations: int = 0
     tokens_used: int = 0
+    confidence: Literal["sufficient", "insufficient"] = "sufficient"
 
 
 _saver = None
@@ -241,11 +266,8 @@ async def run_agent(
     session: AsyncSession,
     *,
     stage_callback: Any = None,
-    langfuse_trace_id: str | None = None,
     history: list[dict[str, Any]] | None = None,
 ) -> AgentResult:
-    del langfuse_trace_id
-
     messages: list[dict[str, Any]] = [{"role": "system", "content": _SYSTEM_PROMPT}]
 
     if history:
@@ -281,37 +303,65 @@ async def run_agent(
 
     graph = await _get_graph()
 
-    with logfire.span("research_agent.run", run_id=str(run_id), question=question[:80]):
-        final_state = await graph.ainvoke(initial_state, config=run_config)
+    # Langfuse trace (PRD N3) — no-op when keys are unset. The observation is
+    # updated with output + usage just before the context exits.
+    with agent_run_trace(str(run_id), question) as observation:
+        with logfire.span("research_agent.run", run_id=str(run_id), question=question[:80]):
+            final_state = await asyncio.wait_for(
+                graph.ainvoke(initial_state, config=run_config),
+                timeout=settings.AGENT_RUN_TIMEOUT,
+            )
 
-    if stage_callback:
-        await stage_callback(ResearchStage.GENERATING)
+        if stage_callback:
+            await stage_callback(ResearchStage.GENERATING)
 
-    answer = final_state.get("answer") or "I was unable to find sufficient evidence to answer this question."
-    citations = final_state.get("citations", [])
-    iterations = final_state.get("iterations", 0)
-    tokens_used = final_state.get("tokens_used", 0)
+        citations = final_state.get("citations", [])
+        confidence = _assess_evidence(citations)
 
-    await _persist_citations(session, run_id, citations)
+        # Zero retrieved evidence is the unambiguous fabrication risk: the model
+        # has nothing to ground claims in, so force an honest refusal rather than
+        # trusting the system prompt alone. The LLM's own answer is kept when
+        # citations exist (even if weak) — low confidence surfaces via the flag.
+        if confidence == "insufficient" and not citations:
+            answer = _INSUFFICIENT_EVIDENCE_RESPONSE
+        else:
+            answer = final_state.get("answer") or "I was unable to find sufficient evidence to answer this question."
 
-    if stage_callback:
-        await stage_callback(ResearchStage.FINALIZING)
+        iterations = final_state.get("iterations", 0)
+        tokens_used = final_state.get("tokens_used", 0)
 
-    logfire.info(
-        "research_agent.done",
-        run_id=str(run_id),
-        answer_len=len(answer),
-        citations=len(citations),
-        iterations=iterations,
-        tokens_used=tokens_used,
-    )
+        await _persist_citations(session, run_id, citations, answer=answer)
 
-    return AgentResult(
-        answer=answer,
-        citations=citations,
-        iterations=iterations,
-        tokens_used=tokens_used,
-    )
+        if stage_callback:
+            await stage_callback(ResearchStage.FINALIZING)
+
+        logfire.info(
+            "research_agent.done",
+            run_id=str(run_id),
+            answer_len=len(answer),
+            citations=len(citations),
+            iterations=iterations,
+            tokens_used=tokens_used,
+            confidence=confidence,
+        )
+
+        observation.update(
+            output={"answer": answer, "confidence": confidence},
+            metadata={
+                "citations": len(citations),
+                "iterations": iterations,
+                "confidence": confidence,
+            },
+            usage_details={"total_tokens": tokens_used},
+        )
+
+        return AgentResult(
+            answer=answer,
+            citations=citations,
+            iterations=iterations,
+            tokens_used=tokens_used,
+            confidence=confidence,
+        )
 
 
 def extract_text(parts: list[dict[str, Any]]) -> str:
@@ -331,22 +381,167 @@ def _format_chunks_for_model(chunks: list[RetrievedChunk]) -> str:
     if not chunks:
         return "No relevant documents found for this query."
 
-    return "\n\n".join(
-        f"[{index}] Source: {chunk.source_ref}\n{chunk.chunk_text}"
-        for index, chunk in enumerate(chunks, start=1)
-    )
+    return _pack_chunks_for_model(chunks)
+
+
+# Evidence-context budget in tokens. The pipeline returns up to 8 chunks of
+# ~512 tokens each (~4096 total) — that alone can overflow a small local model
+# (PRD targets 3B-4B, often 4k-8k context). Packing to a budget keeps headroom
+# for the system prompt, question, history, and answer.
+_CONTEXT_TOKEN_BUDGET = 3000
+
+# Conservative chars-per-token for English text without a tokenizer. Slightly
+# underestimates the true ratio (~4.0), which biases packing toward safety.
+_CHARS_PER_TOKEN = 4
+
+# Shortest probe (in words) worth matching against the answer when locating a
+# citation span. Below this the match is too short to be meaningful grounding.
+_MIN_MATCH_WORDS = 5
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token count without pulling in a tokenizer dependency."""
+    return max(1, len(text) // _CHARS_PER_TOKEN)
+
+
+def _pack_chunks_for_model(chunks: list[RetrievedChunk]) -> str:
+    """Pack retrieved chunks into the model context under a token budget.
+
+    Chunks arrive relevance-ranked (descending) from the pipeline, so packing
+    in input order drops only the least-relevant tail. That keeps each `[n]`
+    marker aligned with ``citations[n-1]`` — the citation-at-retrieval
+    contract the UI relies on to resolve source links.
+
+    The last included chunk is truncated (with a ``...`` marker) to consume
+    remaining budget rather than dropped whole.
+    """
+    packed: list[str] = []
+    remaining = _CONTEXT_TOKEN_BUDGET
+
+    for index, chunk in enumerate(chunks, start=1):
+        block = f"[{index}] Source: {chunk.source_ref}\n{chunk.chunk_text}"
+        cost = _estimate_tokens(block)
+        if cost <= remaining:
+            packed.append(block)
+            remaining -= cost
+            continue
+        # Partial fit: truncate the chunk text to use the remaining budget.
+        prefix = f"[{index}] Source: {chunk.source_ref}\n"
+        room = remaining - _estimate_tokens(prefix) - _estimate_tokens("...")
+        if room > _CHARS_PER_TOKEN * 4:
+            keep_chars = room * _CHARS_PER_TOKEN
+            packed.append(f"{prefix}{chunk.chunk_text[:keep_chars]}...")
+        break
+
+    return "\n\n".join(packed) if packed else "No relevant documents found for this query."
+
+
+def _mean_relevance(citations: list[dict[str, Any]]) -> float:
+    """Average rerank score across all citations in a run.
+
+    A low mean signals that every retrieved chunk was tangential — the agent is
+    working with evidence that doesn't actually address the question.
+    """
+    if not citations:
+        return 0.0
+    scores = [c.get("relevance_score") or 0.0 for c in citations]
+    return sum(scores) / len(scores)
+
+
+def _assess_evidence(citations: list[dict[str, Any]]) -> Literal["sufficient", "insufficient"]:
+    """Decide whether retrieved evidence supports a grounded answer.
+
+    Two failure modes:
+    1. No citations at all — the agent never found anything. This is the
+       unambiguous fabrication risk and forces a hard refusal.
+    2. Citations exist but every relevance score is below threshold — the
+       matches are too tangential to ground specific claims.
+    """
+    if not citations:
+        return "insufficient"
+    if _mean_relevance(citations) < _RELEVANCE_THRESHOLD:
+        return "insufficient"
+    return "sufficient"
 
 
 async def _persist_citations(
     session: AsyncSession,
     run_id: uuid.UUID,
     citations: list[dict[str, Any]],
+    *,
+    answer: str | None,
 ) -> None:
+    # Resolve answer spans only when there's an answer to search and at least
+    # one citation to ground. Best-effort: a span stays NULL if the chunk text
+    # can't be located (e.g. the model paraphrased it away).
+    chunk_texts: dict[uuid.UUID, str] = {}
+    if answer and citations:
+        chunk_texts = await _fetch_chunk_texts(session, citations)
+
     for citation_data in citations:
+        chunk_id = uuid.UUID(citation_data["chunk_id"])
+        span = _locate_in_answer(chunk_texts.get(chunk_id), answer)
         session.add(
             Citation(
                 run_id=run_id,
-                chunk_id=uuid.UUID(citation_data["chunk_id"]),
+                chunk_id=chunk_id,
                 relevance_score=citation_data.get("relevance_score"),
+                answer_span_start=span[0] if span else None,
+                answer_span_end=span[1] if span else None,
             )
         )
+
+
+async def _fetch_chunk_texts(
+    session: AsyncSession,
+    citations: list[dict[str, Any]],
+) -> dict[uuid.UUID, str]:
+    """Fetch chunk texts for a batch of citations in one query."""
+    from src.ingestion.models import Chunk
+
+    chunk_ids = [uuid.UUID(c["chunk_id"]) for c in citations]
+    result = await session.execute(select(Chunk.id, Chunk.text).where(Chunk.id.in_(chunk_ids)))
+    return {row[0]: row[1] for row in result.all()}
+
+
+def _locate_in_answer(chunk_text: str | None, answer: str | None) -> tuple[int, int] | None:
+    """Locate a cited chunk's text within the answer, returning char offsets.
+
+    Uses a normalized, whitespace-tolerant match against a probe of the chunk
+    (first ~120 chars). If the full probe doesn't resolve — e.g. the model
+    quoted only the opening of the chunk — the matcher trims the probe word by
+    word and retries, finding the longest matching prefix-substring. Returns
+    None if no substantial match is found; the citation keeps a NULL span,
+    which is the existing behavior.
+    """
+    if not chunk_text or not answer:
+        return None
+
+    probe = _make_probe(chunk_text)
+    tokens = probe.split(" ")
+    if not tokens:
+        return None
+
+    for end in range(len(tokens), 0, -1):
+        candidate = " ".join(tokens[:end])
+        if end < len(tokens) and end < _MIN_MATCH_WORDS:
+            break
+        pattern = r"\s+".join(re.escape(tok) for tok in candidate.split(" "))
+        match = re.search(pattern, answer, re.IGNORECASE)
+        if match is not None:
+            return match.start(), match.end()
+
+    return None
+
+
+def _make_probe(chunk_text: str, *, max_len: int = 120) -> str:
+    """Derive a distinctive, normalized probe from a chunk for span matching."""
+    normalized = re.sub(r"\s+", " ", chunk_text).strip()
+    if len(normalized) <= max_len:
+        return normalized
+    # Trim to max_len, but don't cut mid-word — back off to the last space.
+    trimmed = normalized[:max_len]
+    last_space = trimmed.rfind(" ")
+    if last_space > max_len // 2:
+        trimmed = trimmed[:last_space]
+    return trimmed

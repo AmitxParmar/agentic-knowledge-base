@@ -8,12 +8,14 @@ Upload returns immediately while arq processes the job in the background.
 from __future__ import annotations
 
 import hashlib
+import io
 import uuid
 from datetime import UTC, datetime
 
 import arq
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
+from pypdf import PdfReader
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +25,7 @@ from src.ingestion.models import Chunk, Document, IngestionJob, JobStage, Source
 from src.ingestion.storage import store
 from src.shared.database import get_session
 from src.shared.errors import NotFoundError
+from src.shared.rate_limit import check_upload_rate_limit
 
 router = APIRouter()
 
@@ -41,25 +44,72 @@ class JobStatusResponse(BaseModel):
     error: str | None = None
 
 
+def _validate_pdf(raw: bytes, filename: str) -> None:
+    """
+    Validate uploaded PDF bytes. Raises HTTPException with a generic 4xx
+    message — never leaks internal detail or stack traces.
+    """
+    if not raw:
+        raise HTTPException(status_code=422, detail="Uploaded file is empty.")
+
+    if len(raw) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds maximum allowed size of {settings.MAX_UPLOAD_SIZE // (1024 * 1024)} MB.",
+        )
+
+    # Magic-byte check: every valid PDF starts with %PDF-
+    if not raw[:5].startswith(b"%PDF-"):
+        raise HTTPException(status_code=422, detail="File does not appear to be a valid PDF.")
+
+    # Try to open with pypdf for structural validation
+    try:
+        reader = PdfReader(io.BytesIO(raw))
+    except Exception:
+        raise HTTPException(status_code=422, detail="File could not be parsed as a PDF.") from None
+
+    if reader.is_encrypted:
+        raise HTTPException(status_code=422, detail="Encrypted PDFs are not supported. Please decrypt before uploading.")
+
+    page_count = len(reader.pages)
+    if page_count == 0:
+        raise HTTPException(status_code=422, detail="PDF has no pages.")
+
+    if page_count > settings.MAX_PDF_PAGES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"PDF has {page_count} pages, which exceeds the maximum of {settings.MAX_PDF_PAGES}.",
+        )
+
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_document(
+    request: Request,
     file: UploadFile = File(...),
     source_type: str = Form(..., description="pdf | repo | audio"),
     workspace_id: uuid.UUID = Depends(get_workspace_id),
     user_id: uuid.UUID = Depends(get_user_id),
     session: AsyncSession = Depends(get_session),
+    _rate: None = Depends(check_upload_rate_limit),
 ) -> UploadResponse:
-    """Accept upload, persist rows, then enqueue the ingestion job."""
+    """Accept upload, validate, persist rows, then enqueue the ingestion job."""
     del user_id  # ponytail: reserved for real auth later
 
     if source_type not in {"pdf", "repo", "audio"}:
         raise HTTPException(status_code=422, detail=f"Invalid source_type: {source_type!r}")
 
-    # ── Content-hash dedup + idempotency ──────────────────────────────────────
-    # Hash the raw bytes before any storage or enqueue. A re-upload of the same
-    # file in the same workspace returns the existing job instead of spinning up
-    # a second ingestion (and a second round of embedding spend).
+    # ── Content-Type validation ───────────────────────────────────────────────
+    content_type = file.content_type or ""
+    if source_type == "pdf" and content_type not in ("application/pdf", "application/octet-stream", ""):
+        raise HTTPException(status_code=422, detail="Content-Type must be application/pdf for PDF uploads.")
+
+    # ── Read and validate ─────────────────────────────────────────────────────
     raw = await file.read()
+
+    if source_type == "pdf":
+        _validate_pdf(raw, file.filename or "upload")
+
+    # ── Content-hash dedup + idempotency ──────────────────────────────────────
     content_hash = hashlib.sha256(raw).hexdigest()
 
     existing = await session.execute(
@@ -79,8 +129,6 @@ async def upload_document(
         )
 
     doc_id = uuid.uuid4()
-    # Durable storage (R2 when configured, local otherwise) — returns a ref
-    # that ingestion reads back later. Never point at Render's ephemeral disk.
     storage_ref = store(
         raw,
         workspace_id=workspace_id,
@@ -110,8 +158,6 @@ async def upload_document(
     await session.commit()
 
     redis = await arq.create_pool(arq.connections.RedisSettings.from_dsn(settings.REDIS_URL))
-    # Idempotency key = content hash. If the same bytes are enqueued twice
-    # (e.g. client retry), arq drops the duplicate instead of double-processing.
     await redis.enqueue_job(
         "run_ingestion_job",
         document_id=str(doc_id),

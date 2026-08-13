@@ -14,6 +14,7 @@ Postgres column now; there is no second store to keep in sync.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -21,6 +22,7 @@ import logfire
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.settings import settings
 from src.ingestion.models import Chunk
 
 logger = logging.getLogger(__name__)
@@ -58,13 +60,29 @@ async def vector_search(
         distance = Chunk.embedding.cosine_distance(query_vector)
         similarity = (1 - distance).label("similarity")
 
-        result = await session.execute(
+        query = (
             select(Chunk.turbovec_id, similarity)
             .where(Chunk.turbovec_id.in_(id_allowlist))
             .where(Chunk.embedding.is_not(None))
             .order_by(similarity.desc())
             .limit(top_k)
         )
+        try:
+            result = await asyncio.wait_for(
+                session.execute(query),
+                timeout=settings.RETRIEVAL_VECTOR_SEARCH_TIMEOUT,
+            )
+        except TimeoutError:
+            logfire.warning(
+                "vector_index.search.timeout",
+                candidates=len(id_allowlist),
+                timeout=settings.RETRIEVAL_VECTOR_SEARCH_TIMEOUT,
+            )
+            # Import here to avoid circular import (vector_index ← pipeline)
+            from src.retrieval.pipeline import RetrievalError
+            raise RetrievalError(
+                f"Vector search timed out after {settings.RETRIEVAL_VECTOR_SEARCH_TIMEOUT}s"
+            ) from None
         return [VectorSearchResult(id=row[0], score=float(row[1])) for row in result.all()]
 
 

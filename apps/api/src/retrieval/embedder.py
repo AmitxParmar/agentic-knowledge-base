@@ -1,28 +1,33 @@
 """
 retrieval/embedder.py
 ---------------------
-    Purpose:    Embedding and reranking clients backed by Cohere.
-            Embeddings use Cohere embed-v3 (1024 dims). Reranking uses
-            Cohere rerank-v3, a real cross-encoder — replacing the old
-            LM Studio / similarity fallback stack.
+Purpose:    Embedding and reranking clients backed by Cohere.
+        Embeddings use Cohere embed-v3 (1024 dims). Reranking uses
+        Cohere rerank-v3, a real cross-encoder — replacing the old
+        LM Studio / similarity fallback stack.
 Dependencies: cohere, settings
 Scope:      embed_texts() → vectors, embed_query() → vector, rerank() → scores.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
+import random
 import struct
 from typing import Any
 
 import logfire
 
 from app.settings import settings
+from src.shared.rate_limit import embed_semaphore
+from src.shared.retry import with_retry
 
 logger = logging.getLogger(__name__)
 
 _EMBED_DIM = settings.EMBEDDING_DIM
+_EMBED_BATCH_SIZE = settings.EMBED_BATCH_SIZE
 
 
 def _cohere_client() -> Any:
@@ -71,15 +76,62 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-async def embed_texts(texts: list[str], *, input_type: str = "search_document") -> list[list[float]]:
+async def embed_texts(
+    texts: list[str],
+    *,
+    input_type: str = "search_document",
+) -> list[list[float]]:
     """Embed a batch of texts using Cohere embed-v3.
 
     input_type tunes how Cohere scales the vectors (search_document for
     stored text, search_query for a user question). Falls back to local
     hash-based embedding if Cohere is unavailable (dev / missing key).
+
+    Processes texts in batches of EMBED_BATCH_SIZE to respect Cohere's
+    96-text limit per request.
     """
-    with logfire.span("embedder.embed", batch_size=len(texts), input_type=input_type):
-        try:
+    all_vectors: list[list[float]] = []
+    for i in range(0, len(texts), _EMBED_BATCH_SIZE):
+        batch = texts[i : i + _EMBED_BATCH_SIZE]
+        vectors = await _embed_batch(batch, input_type)
+        all_vectors.extend(vectors)
+    return all_vectors
+
+
+async def _embed_batch(texts: list[str], input_type: str) -> list[list[float]]:
+    """Embed a single batch of texts using Cohere embed-v3."""
+    async def _do_embed() -> list[list[float]]:
+        return await asyncio.wait_for(
+            _embed_once(texts, input_type),
+            timeout=settings.RETRIEVAL_EMBED_TIMEOUT,
+        )
+
+    try:
+        return await with_retry(
+            _do_embed,
+            max_attempts=settings.RETRY_MAX_ATTEMPTS,
+            base_delay=settings.RETRY_BASE_DELAY,
+            max_delay=settings.RETRY_MAX_DELAY,
+            retryable_exceptions=(
+                asyncio.TimeoutError,
+                ConnectionError,
+                IOError,
+                OSError,
+            ),
+        )
+    except asyncio.TimeoutError:
+        logger.warning("embedder: embedding timed out after %ss", settings.RETRIEVAL_EMBED_TIMEOUT)
+        logfire.warning("embedder.embed.timeout", batch_size=len(texts))
+        return _local_embed(texts)
+    except Exception:
+        logger.warning("embedder: Cohere embedding unavailable, using local fallback")
+        logfire.warning("embedder.embed.fallback", provider="local_hash", reason="Cohere unreachable")
+        return _local_embed(texts)
+
+
+async def _embed_once(texts: list[str], input_type: str) -> list[list[float]]:
+    async with embed_semaphore():
+        with logfire.span("embedder.embed", batch_size=len(texts), input_type=input_type):
             resp = await _get_client().embed(
                 model=settings.COHERE_EMBED_MODEL,
                 input_type=input_type,
@@ -88,16 +140,12 @@ async def embed_texts(texts: list[str], *, input_type: str = "search_document") 
             )
             vectors = resp.embeddings.float_
             logfire.info(
-                "embedder.ok",
+                "embedder.embed.ok",
                 provider="cohere",
                 vectors=len(vectors),
                 dim=len(vectors[0]) if vectors else 0,
             )
             return [list(vector) for vector in vectors]
-        except Exception:
-            logger.warning("Cohere embedding unavailable, using local fallback")
-            logfire.warning("embedder.fallback", provider="local_hash", reason="Cohere unreachable")
-            return _local_embed(texts)
 
 
 async def embed_query(query: str) -> list[float]:
@@ -114,25 +162,54 @@ async def rerank(query: str, passages: list[str], *, top_k: int | None = None) -
     more relevant. Falls back to cosine-similarity between query and passage
     embeddings if Cohere is unavailable.
     """
+    async def _do_rerank() -> list[float]:
+        return await asyncio.wait_for(
+            _rerank_once(query, passages, top_k),
+            timeout=settings.RETRIEVAL_RERANK_TIMEOUT,
+        )
+
+    try:
+        return await with_retry(
+            _do_rerank,
+            max_attempts=settings.RETRY_MAX_ATTEMPTS,
+            base_delay=settings.RETRY_BASE_DELAY,
+            max_delay=settings.RETRY_MAX_DELAY,
+            retryable_exceptions=(
+                asyncio.TimeoutError,
+                ConnectionError,
+                IOError,
+                OSError,
+            ),
+        )
+    except asyncio.TimeoutError:
+        logger.warning("rerank: timed out after %ss", settings.RETRIEVAL_RERANK_TIMEOUT)
+        logfire.warning("embedder.rerank.timeout", passages=len(passages))
+        return await _cosine_fallback(query, passages)
+    except Exception:
+        logger.warning("Cohere reranker unavailable, using cosine fallback")
+        logfire.warning("embedder.rerank.fallback", provider="cosine", reason="Cohere unreachable")
+        return await _cosine_fallback(query, passages)
+
+
+async def _rerank_once(query: str, passages: list[str], top_k: int | None) -> list[float]:
     with logfire.span("embedder.rerank", passages=len(passages)):
-        try:
-            resp = await _get_client().rerank(
-                model=settings.COHERE_RERANK_MODEL,
-                query=query,
-                documents=passages,
-                top_n=top_k or len(passages),
-            )
+        resp = await _get_client().rerank(
+            model=settings.COHERE_RERANK_MODEL,
+            query=query,
+            documents=passages,
+            top_n=top_k or len(passages),
+        )
 
-            # Cohere returns results sorted by relevance; map back to input order.
-            scores = [0.0] * len(passages)
-            for item in resp.results:
-                scores[item.index] = item.relevance_score
+        # Cohere returns results sorted by relevance; map back to input order.
+        scores = [0.0] * len(passages)
+        for item in resp.results:
+            scores[item.index] = item.relevance_score
 
-            logfire.info("embedder.rerank.ok", provider="cohere", passages=len(passages))
-            return scores
-        except Exception:
-            logger.warning("Cohere reranker unavailable, using cosine fallback")
-            logfire.warning("embedder.rerank.fallback", provider="cosine", reason="Cohere unreachable")
-            embeddings = await embed_texts([query, *passages], input_type="search_query")
-            query_emb, passage_embs = embeddings[0], embeddings[1:]
-            return [_cosine_similarity(query_emb, emb) for emb in passage_embs]
+        logfire.info("embedder.rerank.ok", provider="cohre", passages=len(passages))
+        return scores
+
+
+async def _cosine_fallback(query: str, passages: list[str]) -> list[float]:
+    embeddings = await embed_texts([query, *passages], input_type="search_query")
+    query_emb, passage_embs = embeddings[0], embeddings[1:]
+    return [_cosine_similarity(query_emb, emb) for emb in passage_embs]

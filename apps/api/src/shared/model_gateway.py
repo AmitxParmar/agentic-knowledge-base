@@ -16,9 +16,11 @@ Architecture:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import random
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -26,6 +28,12 @@ import litellm
 import logfire
 
 from app.settings import settings
+from src.shared.retry import (
+    NonRetryableError,
+    RetryableError,
+    with_retry,
+    is_retryable_exception,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -176,12 +184,35 @@ async def _call_llm(
         model=primary_model,
         has_tools=tools is not None,
     ):
+        async def _do_call() -> Any:
+            return await asyncio.wait_for(
+                litellm.acompletion(**kwargs),
+                timeout=settings.MODEL_GATEWAY_TIMEOUT,
+            )
+
         try:
-            raw = await litellm.acompletion(**kwargs)
+            raw = await with_retry(
+                _do_call,
+                max_attempts=settings.RETRY_MAX_ATTEMPTS,
+                base_delay=settings.RETRY_BASE_DELAY,
+                max_delay=settings.RETRY_MAX_DELAY,
+                retryable_exceptions=(
+                    asyncio.TimeoutError,
+                    ConnectionError,
+                    IOError,
+                    OSError,
+                ),
+            )
+        except asyncio.TimeoutError:
+            logger.error("model_gateway: call timed out after %ss", settings.MODEL_GATEWAY_TIMEOUT)
+            logfire.error("model_gateway.call.timeout", model=primary_model)
+            raise ProviderError("Model request timed out")
         except Exception as exc:  # surface any provider failure uniformly
             logger.exception("model_gateway: LiteLLM call failed")
             logfire.error("model_gateway.call.failed", model=primary_model, error=str(exc))
             # All providers have been exhausted by LiteLLM's controller.
+            if is_retryable_exception(exc):
+                raise RetryableError(str(exc)) from exc
             raise _classify_provider_error(exc) from exc
         resp = cast(_CompletionResponse, raw)
 

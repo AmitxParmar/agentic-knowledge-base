@@ -15,7 +15,10 @@ Usage:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import lru_cache
+from typing import Any
 
 import logfire
 from fastapi import FastAPI
@@ -72,3 +75,41 @@ def get_langfuse() -> Langfuse:
         secret_key=settings.LANGFUSE_SECRET_KEY,
         host=settings.LANGFUSE_HOST,
     )
+
+
+@contextmanager
+def agent_run_trace(run_id: str, question: str) -> Iterator[Any]:
+    """Trace a single research-agent run in Langfuse (PRD N3).
+
+    Wraps ``run_agent``: records the question as input up front, and expects
+    the caller to call ``observation.update(...)`` with the answer and run
+    metadata before the context exits. When Langfuse keys are unset, this
+    yields a disabled observation and does nothing — no network calls.
+    """
+    if not settings.LANGFUSE_PUBLIC_KEY:
+        yield _NoOpObservation()
+        return
+
+    lf = get_langfuse()
+    with lf.start_as_current_observation(
+        name="research-agent-run",
+        as_type="agent",
+        input={"question": question},
+        metadata={"run_id": run_id},
+    ) as observation:
+        try:
+            yield observation
+        except Exception:
+            observation.update(level="ERROR", status_message="agent run failed")
+            raise
+
+
+class _NoOpObservation:
+    """Stand-in observation for when Langfuse tracing is disabled.
+
+    Absorbs ``update()`` calls so callers don't need to guard against the
+    disabled case.
+    """
+
+    def update(self, **kwargs: Any) -> None:
+        return

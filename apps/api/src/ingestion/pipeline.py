@@ -2,12 +2,15 @@
 ingestion/pipeline.py
 ---------------------
 Six-stage ingestion pipeline run by arq.
+PDF extraction runs in a thread pool under a semaphore with a hard timeout.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
@@ -23,8 +26,13 @@ from src.ingestion.models import Chunk, Document, IngestionJob, JobStage
 from src.ingestion.storage import open_ref
 from src.retrieval.embedder import embed_texts
 from src.shared.database import SessionLocal
+from src.shared.rate_limit import indexing_semaphore, pdf_parse_semaphore
 
 logger = logging.getLogger(__name__)
+
+# One shared executor for blocking PDF work. 2 threads matches the semaphore limit
+# so a third parse never waits in the thread pool queue.
+_pdf_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pdf-parse")
 
 
 async def run_ingestion_job(ctx: dict[str, Any], *, document_id: str) -> None:
@@ -34,7 +42,8 @@ async def run_ingestion_job(ctx: dict[str, Any], *, document_id: str) -> None:
     async with SessionLocal() as session:
         with logfire.span("ingestion.pipeline", document_id=document_id):
             try:
-                await _run_pipeline(session, doc_uuid)
+                async with indexing_semaphore():
+                    await _run_pipeline(session, doc_uuid)
             except Exception as exc:
                 logger.exception("ingestion pipeline failed for document %s", document_id)
                 logfire.error("ingestion.failed", document_id=document_id, error=str(exc))
@@ -48,10 +57,9 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> None:
 
     await _update_stage(session, doc, job, JobStage.extracting)
     with logfire.span("ingestion.extract", source_type=doc.source_type.value):
-        # R2 refs materialize to a temp file; remove it after extraction.
         source_path = open_ref(doc.storage_path)
         try:
-            content = extract(source_path, source_type=doc.source_type.value)
+            content = await _extract_with_timeout(source_path, doc.source_type.value)
         finally:
             if settings.r2_enabled and doc.storage_path.startswith("uploads/"):
                 source_path.unlink(missing_ok=True)
@@ -87,6 +95,23 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> None:
 
     await _update_stage(session, doc, job, JobStage.done)
     logfire.info("ingestion.done", document_id=str(document_id), chunks=len(chunk_rows))
+
+
+async def _extract_with_timeout(source_path: Any, source_type: str) -> Any:
+    """
+    Run extract() in a thread pool under the PDF parse semaphore.
+    Times out after PDF_PARSE_TIMEOUT seconds; raises asyncio.TimeoutError.
+    """
+    loop = asyncio.get_running_loop()
+
+    async def _do() -> Any:
+        async with pdf_parse_semaphore():
+            return await loop.run_in_executor(
+                _pdf_executor,
+                lambda: extract(source_path, source_type),
+            )
+
+    return await asyncio.wait_for(_do(), timeout=settings.PDF_PARSE_TIMEOUT)
 
 
 async def _get_document(session: AsyncSession, document_id: uuid.UUID) -> Document:
