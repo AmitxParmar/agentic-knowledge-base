@@ -41,10 +41,35 @@ export function UploadComposer({ onIngestionComplete }: UploadComposerProps) {
     }
   }, [currentStage, jobStatus.data, onIngestionComplete]);
 
+  // Keep in sync with MAX_UPLOAD_SIZE / MAX_PDF_PAGES in apps/api/app/settings.py
+  const MAX_UPLOAD_MB = 100;
+
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null;
-    setFile(selected);
     setLocalError(null);
+
+    if (selected) {
+      // Size guard — fail fast before the round-trip
+      if (selected.size > MAX_UPLOAD_MB * 1024 * 1024) {
+        setLocalError(`File exceeds the ${MAX_UPLOAD_MB} MB limit.`);
+        setFile(null);
+        event.target.value = "";
+        return;
+      }
+      // Type guard for PDF uploads
+      if (
+        sourceType === "pdf" &&
+        selected.type !== "application/pdf" &&
+        !selected.name.toLowerCase().endsWith(".pdf")
+      ) {
+        setLocalError("Only PDF files are supported for this source type.");
+        setFile(null);
+        event.target.value = "";
+        return;
+      }
+    }
+
+    setFile(selected);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -55,8 +80,17 @@ export function UploadComposer({ onIngestionComplete }: UploadComposerProps) {
     }
 
     setLocalError(null);
-    const result = await upload.mutateAsync({ file, sourceType });
-    setActiveJobId(result.job_id);
+    try {
+      const result = await upload.mutateAsync({ file, sourceType });
+      setActiveJobId(result.job_id);
+    } catch (err: unknown) {
+      // Surface server's `detail` field when available; fall back to generic message
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        (err as Error)?.message ??
+        "Upload failed. Please try again.";
+      setLocalError(detail);
+    }
   }
 
   const isUploading = upload.isPending || (activeJobId !== null && !isTerminal);
