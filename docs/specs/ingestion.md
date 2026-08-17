@@ -5,8 +5,9 @@ Turn an uploaded PDF, code repository, or audio file into searchable,
 citable chunks.
 
 ## Dependencies
-ADR-002 (Turbovec), `schema.md` (`documents`, `ingestion_jobs`, `chunks`),
-`docs/ui/ux.md` (progress-stage wording emitted at each step below).
+ADR-002 (pgvector — Turbovec replaced), `schema.md` (`documents`,
+`ingestion_jobs`, `chunks`), `docs/ui/ux.md` (progress-stage wording emitted
+at each step below).
 
 ## Scope
 Upload through "searchable." Does not cover how chunks are queried — see

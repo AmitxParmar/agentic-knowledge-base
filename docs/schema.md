@@ -15,10 +15,9 @@ relationships, ownership. No DDL, no ORM code, no index definitions.
 
 ## Architecture Principle This Schema Follows
 Per `docs/architecture.html`: PostgreSQL holds all metadata, relationships,
-and full chunk text — it is the durable source of truth. Turbovec holds only
-the vector index, keyed by `chunk_id`, with no metadata of its own. Every
-embedding row in Turbovec must correspond to exactly one `chunks` row in
-Postgres; Turbovec is rebuildable from Postgres, never the other way around.
+full chunk text, and the vector index — it is the durable source of truth.
+Embeddings are stored in the `chunks.embedding` pgvector column, so there is
+no separate vector store to sync or rebuild (see ADR-002 addendum).
 
 ## Core Entities
 
@@ -55,7 +54,7 @@ embedded, retrieved, and cited.
 - Belongs to exactly one `document`
 - Ordinal position within the document
 - Full chunk text (so Postgres alone can answer "what does this chunk say")
-- Reference to its vector in Turbovec (the `chunk_id` is the join key)
+- Vector embedding in `chunks.embedding` (pgvector) — same row as the text
 - Metadata (author/date/category, inherited from document-level extraction)
 
 ### `research_runs`
@@ -89,19 +88,19 @@ evidence that supports it.
 - A `workspace` is the scoping boundary for everything below it —
   `documents`, `chunks` (via `documents`), and `research_runs` all belong to
   exactly one workspace and should never be queried across workspaces.
-- A `chunk`'s vector lives in Turbovec; its text and metadata live in
-  Postgres. Postgres is authoritative — if the two disagree, Postgres wins
-  and Turbovec is re-indexed from it.
+- A `chunk`'s text, metadata, and embedding vector all live in the same
+  `chunks` row in Postgres. Postgres is authoritative — there is no separate
+  vector store to re-index.
 
 ## Data Flow Summary
 ```
 Upload → document row created → ingestion_job created (queued)
        → extraction/chunking/embedding stages update the job
-       → chunks rows written (text + metadata) + vectors written to Turbovec
+       → chunks rows written (text + metadata + embedding vector)
        → document marked searchable
 
 Question → research_run row created
-        → Research Agent retrieves chunks (Turbovec + Postgres hybrid search)
+        → Research Agent retrieves chunks (pgvector + Postgres FTS hybrid search)
         → answer drafted with citations rows linking run → chunks
         → research_run marked complete
 ```

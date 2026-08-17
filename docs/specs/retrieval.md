@@ -5,8 +5,8 @@ Turn a question into a ranked list of evidence chunks, each carrying enough
 reference information to become a citation.
 
 ## Dependencies
-ADR-002 (Turbovec), ADR-003 (Model Gateway, for the rewrite step),
-`schema.md` (`chunks`).
+ADR-002 (pgvector — Turbovec replaced), ADR-003 (Model Gateway, for the
+rewrite step), `schema.md` (`chunks`).
 
 ## Scope
 The retrieval pipeline only — three stages, described below. Called by the
@@ -27,7 +27,7 @@ standalone agent.
 |---|---|
 | Input | The HyDE-expanded query, `workspace_id` |
 | Output | A fused, ranked candidate list of chunk references with scores |
-| How | Postgres pre-filters by metadata (workspace, document) into an ID allowlist. That allowlist is passed into the dense vector search so filtering happens inside the scoring kernel. In parallel, Postgres full-text search (`tsvector`) runs BM25 keyword matching over the same allowlist. The two ranked lists are merged via Reciprocal Rank Fusion. The pgvector `session.execute()` is wrapped in `asyncio.wait_for(RETRIEVAL_VECTOR_SEARCH_TIMEOUT)` — a hung query re-raises as `RetrievalError`, not a raw 500. |
+| How | Postgres pre-filters by metadata (workspace, document) into an ID allowlist. That allowlist is passed into the dense vector search so filtering happens inside the scoring kernel. In parallel, Postgres full-text search (`tsvector`, `ts_rank_cd`) runs keyword matching over the same allowlist. The two ranked lists are merged via Reciprocal Rank Fusion. The pgvector `session.execute()` is wrapped in `asyncio.wait_for(RETRIEVAL_VECTOR_SEARCH_TIMEOUT)` — a hung query re-raises as `RetrievalError`, not a raw 500. |
 
 ### 3. Rerank
 | | |

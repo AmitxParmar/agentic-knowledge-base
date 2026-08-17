@@ -46,11 +46,11 @@ Style and structure rules only. Technology *choices* are justified in
 | API gateway | FastAPI |
 | Orchestration | LangGraph |
 | Frontend | Next.js |
-| Vector index | Turbovec |
+| Vector index | pgvector (Turbovec replaced) |
 | Relational DB | PostgreSQL |
 | Local model serving | LM Studio (OpenAI-compatible endpoint) |
-| Embeddings | BGE-M3 |
-| Rerank | BGE-Reranker-v2-m3 |
+| Embeddings | Cohere embed-v3 |
+| Rerank | Cohere rerank-v3 |
 | PDF parsing | Docling |
 | Audio transcription | faster-whisper |
 | Code repo parsing | tree-sitter + gitingest |
