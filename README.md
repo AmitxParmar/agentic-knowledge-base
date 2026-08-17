@@ -7,7 +7,7 @@ MVP scope is a single **Research Agent** (ReAct) over hybrid retrieval. The froz
 | Layer | What it does |
 | --- | --- |
 | **Knowledge base** | PDF / repo / audio → extract → chunk → embed → Postgres + vectors |
-| **RAG** | HyDE → dense + BM25 hybrid (RRF) → rerank → cite chunks |
+| **RAG** | HyDE → dense + PostgreSQL FTS hybrid (RRF) → rerank → cite chunks |
 | **Agentic** | LangGraph Research Agent: reason → retrieve → draft under an iteration cap |
 
 ## Monorepo layout
@@ -41,13 +41,13 @@ flowchart TB
     Q["Redis queue"]
     X["Extract<br/>Docling · whisper · tree-sitter"]
     C["Chunk · Chonkie"]
-    E["Embed · BGE-M3"]
+    E["Embed · Cohere embed-v3"]
   end
 
   subgraph Retrieval["Retrieval engine"]
     HYDE["Query rewrite · HyDE"]
     HYB["Hybrid search + RRF"]
-    RER["Rerank · BGE"]
+    RER["Rerank · Cohere rerank-v3"]
   end
 
   subgraph Agent["Orchestration · LangGraph"]
@@ -56,7 +56,7 @@ flowchart TB
 
   subgraph Storage
     PG[("PostgreSQL<br/>metadata · chunks · FTS")]
-    TV[("Turbovec / vectors<br/>rebuildable from PG")]
+    TV[("pgvector<br/>vectors in Postgres")]
     FS[("File storage<br/>raw uploads")]
   end
 
@@ -139,7 +139,7 @@ sequenceDiagram
   AG->>MG: ReAct · may call retrieve_evidence
   AG->>RET: retrieve(query, workspace_id)
   RET->>MG: HyDE expand
-  RET->>PG: BM25 / workspace allowlist
+  RET->>PG: PostgreSQL FTS / workspace allowlist
   RET->>TV: dense ANN
   RET->>RET: RRF + rerank
   RET-->>AG: chunks + source_ref
@@ -227,13 +227,13 @@ Details: [`apps/api/SETUP.md`](apps/api/SETUP.md), [`docs/AGENTS.md`](docs/AGENT
 | [`docs/latest-architecture.html`](docs/latest-architecture.html) | Full V1 interactive architecture |
 | [`docs/REMAINING.md`](docs/REMAINING.md) | Remaining work checklist |
 | [`docs/specs/`](docs/specs/) | Ingestion, retrieval, researcher contracts |
-| [`docs/adr/`](docs/adr/) | LangGraph, Turbovec, Model Gateway |
+| [`docs/adr/`](docs/adr/) | LangGraph, pgvector, Model Gateway |
 | [`ROADMAP.md`](ROADMAP.md) | Get-it-testable steps + future plan |
 
 ## Tech stack
 
 - **API:** Python 3.11+, FastAPI, LangGraph, arq, SQLAlchemy async  
-- **Retrieval:** BGE-M3, hybrid RRF, BGE-Reranker, Turbovec (numpy fallback in dev)  
+- **Retrieval:** Cohere embed-v3, hybrid RRF (dense + PostgreSQL FTS), Cohere rerank-v3, pgvector
 - **Models:** Model Gateway (Groq → OpenRouter)  
 - **Web:** Next.js 16, React 19, pnpm + Turborepo  
 - **Data:** PostgreSQL (Neon), Redis (Upstash / arq)

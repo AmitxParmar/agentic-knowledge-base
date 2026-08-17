@@ -19,6 +19,7 @@ pip install -e ".[dev]"
 Edit `apps/api/.env`:
 - Set `MODEL_GATEWAY_GROQ_API_KEY` (get at console.groq.com — free tier is fine)
 - Set `MODEL_GATEWAY_OPENROUTER_API_KEY` (get at openrouter.ai — fallback)
+- Set `COHERE_API_KEY` + `COHERE_EMBED_MODEL` (`embed-english-v3.0`) + `COHERE_RERANK_MODEL` (`rerank-multilingual-v3.0`)
 - Set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` (required by N3 in prod)
 - Leave `LOGFIRE_TOKEN` empty for local dev — logs go to console
 
@@ -38,8 +39,8 @@ uvicorn app.main:app --reload --port 8000
 # Async worker (ingestion jobs)
 arq apps.worker.main.WorkerSettings
 
-# BGE models (self-hosted — Docker recommended)
-# See infra/docker-compose.yml when added
+# Embeddings + rerank (Cohere API — keys set in .env)
+# COHERE_API_KEY / COHERE_EMBED_MODEL / COHERE_RERANK_MODEL
 ```
 
 ## 5. Lint + test

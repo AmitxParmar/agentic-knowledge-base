@@ -103,7 +103,7 @@ arq apps.worker.main.WorkerSettings
 - PostgreSQL (async driver: asyncpg)
 - Redis (for arq job queue) (we will use rediss://)
 - Will use groq/openrouter free models (or) LM Studio or compatible OpenAI endpoint for local model serving
-- BGE-M3 / BGE-Reranker-v2-m3 for embeddings and reranking
+- Cohere embed-v3 / rerank-v3 for embeddings and reranking
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph

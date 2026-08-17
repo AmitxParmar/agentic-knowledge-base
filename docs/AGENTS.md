@@ -34,7 +34,7 @@ instead of silently picking one side.
 
 ## Rules
 - Follow ADR decisions. Don't introduce a competing library or pattern an
-  ADR already settled (e.g., don't add pgvector — see ADR-002).
+  ADR already settled (e.g., don't add a second vector store — see ADR-002).
 - Follow `conventions.md` for folder structure and naming without exception.
 - Prefer modifying an existing file over creating a new one.
 - Don't add a dependency that isn't already listed in `conventions.md` →

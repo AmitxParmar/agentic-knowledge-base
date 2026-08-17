@@ -24,9 +24,9 @@
 | `src/ingestion/chunker.py` | Chonkie `SemanticChunker` + `CodeChunker` |
 | `src/ingestion/pipeline.py` | 6-stage arq job: extract → chunk → embed → persist |
 | `src/ingestion/router.py` | `POST /api/ingestion/upload`, `GET /api/ingestion/jobs/{id}` |
-| `src/retrieval/embedder.py` | BGE-M3 + BGE-Reranker httpx clients |
-| `src/retrieval/vector_index.py` | Turbovec wrapper (numpy fallback for dev) |
-| `src/retrieval/pipeline.py` | HyDE → hybrid search (dense + BM25 + RRF) → rerank |
+| `src/retrieval/embedder.py` | Cohere embed-v3 + rerank-v3 clients |
+| `src/retrieval/vector_index.py` | pgvector dense search (numpy fallback for dev) |
+| `src/retrieval/pipeline.py` | HyDE → hybrid search (dense + PostgreSQL FTS + RRF) → rerank |
 | `src/research/models.py` | `ResearchRun`, `Citation` ORM models |
 | `src/research/agent.py` | LangGraph `StateGraph` ReAct agent, citation-at-retrieval |
 | `src/research/router.py` | `WS /api/research/ws` + `GET /api/research/runs/{id}` |
@@ -158,34 +158,15 @@ This is the fastest way to verify API keys before anything else.
 - [ ] Quick smoke: `uv run python -c "import asyncio; from src.shared.model_gateway import complete; print(asyncio.run(complete([{'role':'user','content':'say hi'}])))"`
 - [ ] Blank the Groq key temporarily → confirm OpenRouter fallback fires (check logs)
 
-### Step 7 — BGE Services (1 hour)
+### Step 7 — Embeddings & Rerank (1 hour)
 
-Two options — pick whichever matches your setup:
+Cohere API — set `COHERE_API_KEY`, `COHERE_EMBED_MODEL=embed-english-v3.0`,
+`COHERE_RERANK_MODEL=rerank-multilingual-v3.0` in `apps/api/.env`.
 
-**Option A — Hugging Face Text Embeddings Inference (recommended):**
-```yaml
-# Add to docker-compose.yml
-bge-embedder:
-  image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
-  command: --model-id BAAI/bge-m3 --port 8001
-  ports: ["8001:8001"]
-
-bge-reranker:
-  image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
-  command: --model-id BAAI/bge-reranker-v2-m3 --port 8002
-  ports: ["8002:8002"]
-```
-Note: TEI uses `/embed` and `/rerank` endpoints — matches `embedder.py` exactly.
-
-**Option B — Local Python server (simpler, slower):**
-- [ ] Create `apps/api/scripts/bge_server.py` — minimal FastAPI wrapping
-      `sentence-transformers` for `/embed` and `/rerank`
-- [ ] `uv run python scripts/bge_server.py --port 8001 --model bge-m3`
-
-Either way:
-- [ ] `curl http://localhost:8001/embed -d '{"texts":["hello"]}' -H 'Content-Type: application/json'` returns a vector
-- [ ] `curl http://localhost:8002/rerank -d '{"query":"test","passages":["a","b"]}' -H 'Content-Type: application/json'` returns scores
+Verify:
 - [ ] `uv run python -c "import asyncio; from src.retrieval.embedder import embed_query; print(len(asyncio.run(embed_query('test'))))"` — prints 1024
+- [ ] `uv run python -c "import asyncio; from src.retrieval.embedder import rerank; print(asyncio.run(rerank('query', ['a', 'b'])))"` — returns scores
+- [ ] Blank the Cohere key temporarily → confirm embed/rerank fail with a clear settings error
 
 ### Step 8 — Test Ingestion End-to-End (1 hour)
 
@@ -316,8 +297,8 @@ Without this, only curl/wscat can test the system.
 - [ ] `pyrightconfig.json` strict mode — catch all remaining type gaps
 - [ ] Integration test: upload PDF → ask → assert citations non-empty (uses test DB)
 - [ ] Ingestion retry logic: arq job retries up to 3× on transient errors
-- [ ] BGE health check at startup — fail fast if embedder/reranker unreachable
-- [ ] `GET /health` expanded: check DB connection + Redis + BGE endpoints
+- [ ] Embedding health check at startup — fail fast if embedder/reranker unreachable
+- [ ] `GET /health` expanded: check DB connection + Redis + embedding endpoints
 - [ ] File size limit on upload (reject > 50MB before processing)
 - [ ] Accepted file type validation (reject non-PDF/audio/zip at upload)
 - [ ] Rate limiting on upload + research endpoints (slowapi or similar — needs ADR)
