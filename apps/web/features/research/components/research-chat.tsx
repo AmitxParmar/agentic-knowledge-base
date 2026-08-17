@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { useResearchChat } from "../api/use-research-chat";
 import { CitationRef } from "./citation-ref";
 import { ProgressStageList } from "./progress-stage-list";
+import { VoiceButton } from "./voice-button";
 import { groupCitations, type Citation, type GroupedCitation } from "../utils/parse-citations";
 import type { RunEvent } from "../api/use-research-run";
 import type { UIMessage } from "@tanstack/ai-client";
@@ -204,6 +205,7 @@ export function ResearchChat({
             placeholder={disabled ? "Ingest a source first…" : "Ask about the evidence…"}
             disabled={disabled}
           />
+          <VoiceButton disabled={disabled} />
           <button type="submit" className={styles.sendBtn} disabled={disabled || isLoading || !input.trim()}>
             {isLoading ? "…" : ">>> RUN"}
           </button>

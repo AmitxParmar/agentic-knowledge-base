@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Type declarations for react-syntax-highlighter (no official @types package
  * matches v16). Minimal surface for our usage: Prism component + style map.
  */
