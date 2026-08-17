@@ -89,7 +89,7 @@
 | Rate limiting | **Done** | Redis fixed-window; upload 5/min, chat 20/min per IP (`src/shared/rate_limit.py`) |
 | Input Guardrail (LLM Guard) | Deferred | PRD Non-Goals |
 | Semantic Cache Check (Redis vector) | Deferred | PRD Non-Goals |
-| Expanded `/health` (DB + Redis + BGE) | **Done** | `/healthz` (liveness) + `/readyz` (Redis ping + DB SELECT 1) |
+| Expanded `/health` (DB + Redis + embedding) | **Done** | `/healthz` (liveness) + `/readyz` (Redis ping + DB SELECT 1) |
 
 ### Checklist
 
@@ -104,18 +104,18 @@
 | Item | Status | Notes |
 |---|---|---|
 | HyDE query rewrite | Done | Via Model Gateway |
-| Hybrid dense + BM25 + RRF | **Done** | BM25 uses the persisted `chunks.tsv` generated column + GIN index (migration `a1b2c3d4e5f6`), not `to_tsvector` on the fly |
+| Hybrid dense + PostgreSQL FTS + RRF | **Done** | FTS uses the persisted `chunks.tsv` generated column + GIN index (migration `a1b2c3d4e5f6`), not `to_tsvector` on the fly |
 | Workspace ID allowlist filter | Done | In hybrid search path |
 | Vector search timeout | **Done** | `asyncio.wait_for(RETRIEVAL_VECTOR_SEARCH_TIMEOUT=5s)` in `src/retrieval/vector_index.py`; timeout → `RetrievalError` |
 | Embed + rerank (Cohere) | **Done** | Cohere embed-v3 + rerank-v3 (commit `8411dfa`); `ALLOW_EMBEDDING_FALLBACK=false` default → provider failure fails the ingestion job loudly (`EmbeddingError`) instead of persisting hash/cosine fallback vectors |
-| Dense vector store (pgvector) | **Done** | Embeddings persisted on `chunks.embedding` (pgvector); no in-memory Turbovec / numpy fallback — the Postgres column IS the index |
+| Dense vector store (pgvector) | **Done** | Embeddings persisted on `chunks.embedding` (pgvector); no in-memory fallback — the Postgres column IS the index |
 | Rebuild index from Postgres on startup | Done | Lifespan in `main.py` (no-op — no rebuild needed) |
 
 ### Checklist (critical for real quality)
 
 - [x] Migration: `chunks.tsv` + GIN (ROADMAP Step 4) — applied (`a1b2c3d4e5f6`, chain head `f2c8d4e6a9b1`)
 - [x] Real embed + rerank endpoints — Cohere embed-v3 / rerank-v3 (commit `8411dfa`); silent fallbacks removed in production (`ALLOW_EMBEDDING_FALLBACK=false`)
-- [x] Dense vector store — pgvector column, no Turbovec / numpy fallback
+- [x] Dense vector store — pgvector column, no in-memory fallback
 - [ ] Integration proof: ranked results with real `source_ref` / `chunk_id` on a live DB
 
 ---
@@ -177,7 +177,7 @@ Nothing required for single-shot MVP.
 | Alembic migrations | **Done** | Chain head `f2c8d4e6a9b1`: content_hash, thread_id, tsvector + GIN, pgvector embedding column |
 | Seed script | Done | `scripts/seed.py` |
 | Local raw file storage | Done | `UPLOAD_DIR` pattern |
-| Durable vector store | **Done** | pgvector on `chunks.embedding`; Postgres is the index — no separate Turbovec / numpy store |
+| Durable vector store | **Done** | pgvector on `chunks.embedding`; Postgres is the index — no separate vector store |
 
 ### Checklist
 
@@ -249,7 +249,7 @@ Nothing required for single-shot MVP.
 | Vercel frontend | Remaining | |
 | Render API + workers | Remaining | |
 | Docker images for heavy ingestion models | Remaining | |
-| BGE TEI containers | Remaining | ROADMAP Step 7 |
+| Embedding endpoints via Model Gateway | Remaining | ROADMAP Step 7 |
 
 ---
 
@@ -265,7 +265,7 @@ Highest priority. Code is largely written; ops and proof are not.
 | 4. Migration + **tsvector** | Partial — tables yes, tsv no |
 | 5. Seed | Script exists — run not verified |
 | 6. Model gateway smoke | Remaining to verify |
-| 7. BGE services | Remaining |
+| 7. Embeddings & rerank | Remaining |
 | 8. Ingestion E2E | Remaining |
 | 9. Retrieval script/tests | Remaining |
 | 10. Research agent E2E | Remaining |
@@ -339,8 +339,7 @@ flowchart TB
   end
 
   subgraph Storage
-    PG[("PostgreSQL")]
-    TV[("Turbovec")]
+    PG[("PostgreSQL<br/>+ pgvector")]
     FS[("PDF / raw storage")]
   end
 
@@ -356,7 +355,7 @@ flowchart TB
     CODE["tree-sitter + gitingest"]
     CHK["Chonkie"]
     META["Metadata Extractor"]
-    EMB["BGE-M3"]
+    EMB["Cohere embed-v3"]
   end
 
   subgraph Guard["Output Guardrail & Observability"]
@@ -425,9 +424,9 @@ sequenceDiagram
   participant W as arq worker
   participant X as Extractors
   participant C as Chonkie chunker
-  participant E as Embedder BGE-M3
+  participant E as Embedder Cohere
   participant PG as PostgreSQL
-  participant TV as Turbovec / numpy fallback
+  participant TV as pgvector
 
   UI->>API: POST /api/ingestion/upload
   API->>FS: write raw file
@@ -441,7 +440,7 @@ sequenceDiagram
   W->>PG: stage = embedding
   W->>E: embed_texts(chunks)
   W->>PG: INSERT chunks (+ metadata)
-  W->>TV: upsert vectors by chunk_id
+  W->>PG: INSERT chunks + embedding vector
   W->>PG: stage = done / failed
   UI->>API: GET /api/ingestion/jobs/{id} (poll stages)
 ```
@@ -459,7 +458,7 @@ sequenceDiagram
   participant MG as Model Gateway
   participant RET as retrieval pipeline
   participant PG as PostgreSQL
-  participant TV as Turbovec
+  participant TV as pgvector
   participant LF as Langfuse / Logfire
 
   UI->>API: POST {question, threadId}
@@ -469,7 +468,7 @@ sequenceDiagram
   AG->>MG: ReAct (tools: retrieve_evidence)
   AG->>RET: retrieve(question, workspace_id)
   RET->>MG: HyDE expand query
-  RET->>PG: BM25 / FTS + workspace allowlist
+  RET->>PG: PostgreSQL FTS + workspace allowlist
   RET->>TV: dense ANN on allowlist
   RET->>RET: RRF merge
   RET->>RET: rerank
@@ -502,7 +501,7 @@ flowchart LR
   APC -->|no| PL
   PL --> RA
   RA --> HYDE[HyDE]
-  HYDE --> HYB[Dense ⊕ BM25 + RRF]
+  HYDE --> HYB[Dense ⊕ PostgreSQL FTS + RRF]
   HYB --> RR[Rerank]
   RR --> RA
   RA --> MCP[MCP tools]
@@ -525,7 +524,7 @@ flowchart LR
 | `docs/schema.md` | Conceptual data model + deferred entities |
 | `docs/specs/*` | Component contracts (ingestion, retrieval, researcher) |
 | `docs/ux.md` | Client progress vocabulary and citation display rules |
-| `docs/adr/*` | Locked tech decisions (LangGraph, Turbovec, Model Gateway) |
+| `docs/adr/*` | Locked tech decisions (LangGraph, pgvector, Model Gateway) |
 
 ---
 

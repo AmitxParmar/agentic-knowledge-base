@@ -395,7 +395,7 @@
     <rect x="1195" y="270" width="105" height="70"/>
     <text class="t" x="1204" y="297">tsvector</text>
     <text class="m" x="1204" y="317">+ GIN index</text>
-    <text class="m" x="1204" y="331">keyword/BM25</text>
+    <text class="m" x="1204" y="331">keyword/FTS</text>
   </g>
   <g class="node" data-k="reranker">
     <rect x="1080" y="362" width="220" height="60"/>
@@ -573,13 +573,13 @@ const DETAIL = {
   "critic": { t:"Critic", m:"planned · needs spec", b:"Will check draft answers against actual retrieved evidence and flag ungrounded claims back to the researcher. Needs justification against <code>PRD.md</code> Non-Goals before it ships." },
   "hybrid": { t:"Hybrid Search + RRF", m:"rrf merge", b:"Dense vectors and keyword matches fetched from the same Postgres table, merged with Reciprocal Rank Fusion. No separate vector DB to host or sync." },
   "pgvector": { t:"pgvector", m:"chunks.embedding · vector(1024)", b:"Stores Cohere embeddings directly in Neon Postgres, cosine search in SQL. <b>This is the index — not a copy of one.</b> Embeddings live beside their chunks in one table, so there is no second store to sync and nothing to rebuild (the old Turbovec index was removed; see ADR-002 addendum)." },
-  "tsvector": { t:"tsvector + GIN", m:"generated column + GIN index", b:"Postgres full-text search using a generated <code>tsv</code> column over <code>chunk.text</code>, indexed with GIN for approximate BM25 ranking. Instant keyword matching without extra infra." },
+  "tsvector": { t:"tsvector + GIN", m:"generated column + GIN index", b:"Postgres full-text search using a generated <code>tsv</code> column over <code>chunk.text</code>, indexed with GIN for PostgreSQL FTS ranking (<code>ts_rank_cd</code>). Instant keyword matching without extra infra." },
   "reranker": { t:"Cohere Rerank v3", m:"rerank-english-v3.0", b:"Cross-encoder re-scores the hybrid candidates for true semantic relevance before they reach the researcher." },
   "litellm": { t:"LiteLLM Model Gateway", m:"one uniform interface", b:"Every LLM call from every agent routes through here. Swapping providers or models means changing env vars, not code. Fallback chain: Groq → OpenRouter." },
   "groq": { t:"Groq", m:"llama-3 family", b:"Primary LLM for agent reasoning. Fast, generous free tier, good for the research loop." },
   "openrouter": { t:"OpenRouter", m:"fallback models", b:"Fallback for when Groq is saturated or a specific experiment needs a different model. Configured via env var, not code." },
   "cohere": { t:"Cohere API", m:"embed-english-v3.0 · rerank-english-v3.0", b:"Cloud embeddings and reranking endpoint. 1024-dim vectors, high-quality semantic retrieval without running GPU locally." },
-  "neon": { t:"Neon Postgres", m:"serverless postgres", b:"Documents table, chunks with vectors, tsvector column for BM25, GIN indexes, and citation links. Full system of record in one managed DB." },
+  "neon": { t:"Neon Postgres", m:"serverless postgres", b:"Documents table, chunks with vectors, tsvector column for full-text search, GIN indexes, and citation links. Full system of record in one managed DB." },
   "redis": { t:"Upstash Redis", m:"TLS · rediss://", b:"Backs the arq job queue — serverless, no idle cost, connects over TLS <code>rediss://</code>. <b>That's all it does today.</b> The 'sessions' cache and any semantic/query cache are unimplemented; the only state here is queued and in-flight ingestion jobs." },
   "r2": { t:"Backblaze B2", m:"s3-compatible objects", b:"Raw uploaded files stored durably. S3-compatible API via boto3, zero egress to Render." },
   "worker": { t:"arq Worker", m:"same container as app", b:"Async background worker handling uploads, chunking, embedding, and vector writes — kept off the request path so HTTP responses stay fast." },

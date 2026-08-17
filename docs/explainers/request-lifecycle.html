@@ -382,8 +382,8 @@ data: {"type": "<span class="t">RUN_FINISHED</span>", "threadId": "…", "runId"
           <tr><td class="event">1 · upload</td><td>FastAPI route</td><td><code>documents</code> + queued <code>ingestion_jobs</code> row, raw file to storage (R2/disk). Returns 202-style job id.</td></tr>
           <tr><td class="event">2 · extract</td><td>arq worker</td><td>Docling (PDF) · faster-whisper (audio) · tree-sitter+gitingest (repo) → structured text.</td></tr>
           <tr><td class="event">3 · chunk</td><td>arq worker</td><td>Chonkie — semantic boundaries, not fixed token counts.</td></tr>
-          <tr><td class="event">4–5 · embed</td><td>arq worker</td><td>BGE-M3 vector per chunk; metadata extracted alongside.</td></tr>
-          <tr><td class="event">6 · persist</td><td>arq worker</td><td>Chunk rows → Postgres · vectors → in-process Turbovec (rebuilt from PG at boot).</td></tr>
+          <tr><td class="event">4–5 · embed</td><td>arq worker</td><td>Cohere embed-v3 vector per chunk; metadata extracted alongside.</td></tr>
+          <tr><td class="event">6 · persist</td><td>arq worker</td><td>Chunk rows → Postgres · vectors → pgvector (<code>chunks.embedding</code>, in Postgres).</td></tr>
         </tbody>
       </table>
     </div>

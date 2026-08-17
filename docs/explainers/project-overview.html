@@ -245,7 +245,7 @@
     <div class="facts">
       <span class="fact">API: <b>FastAPI · LangGraph</b></span>
       <span class="fact">UI: <b>Next.js 16 · React 19 · TanStack AI</b></span>
-      <span class="fact">Store: <b>Postgres + in-process Turbovec</b></span>
+      <span class="fact">Store: <b>Postgres · pgvector</b></span>
       <span class="fact">Queue: <b>Redis · arq</b></span>
       <span class="fact">Models: <b>Groq → OpenRouter</b> (Model Gateway)</span>
     </div>
@@ -277,15 +277,15 @@
           <div class="node hot"><div class="t">Upload</div><div class="d">POST /api/ingestion/upload → enqueues arq job</div></div>
           <div class="node"><div class="t">Extract</div><div class="d">Docling (PDF) · faster-whisper (audio) · tree-sitter (code)</div></div>
           <div class="node"><div class="t">Chunk</div><div class="d">Chonkie — semantic boundaries, not fixed tokens</div></div>
-          <div class="node"><div class="t">Embed</div><div class="d">BGE-M3, one vector per chunk</div></div>
-          <div class="node"><div class="t">Persist</div><div class="d">chunks → Postgres · vectors → Turbovec (rebuilt from PG)</div></div>
+          <div class="node"><div class="t">Embed</div><div class="d">Cohere embed-v3, one vector per chunk</div></div>
+          <div class="node"><div class="t">Persist</div><div class="d">chunks → Postgres · vectors → pgvector (in Postgres)</div></div>
         </div>
         <div class="lane">
           <div class="lane-title">2 · Retrieval</div>
           <div class="node"><div class="t">HyDE rewrite</div><div class="d">hypothetical answer embeds closer to real chunks</div></div>
-          <div class="node"><div class="t">Hybrid search</div><div class="d">dense (Turbovec) + BM25 (Postgres tsvector) in an allowlist</div></div>
+          <div class="node"><div class="t">Hybrid search</div><div class="d">dense (pgvector) + PostgreSQL FTS (tsvector) in an allowlist</div></div>
           <div class="node"><div class="t">RRF fusion</div><div class="d">reciprocal rank fusion of both ranked lists</div></div>
-          <div class="node"><div class="t">Rerank</div><div class="d">BGE-Reranker-v2-m3</div></div>
+          <div class="node"><div class="t">Rerank</div><div class="d">Cohere rerank-v3</div></div>
         </div>
         <div class="lane">
           <div class="lane-title">3 · Agent</div>
@@ -351,8 +351,8 @@
             <td>An explicit ReAct state graph: the loop (reason → retrieve → answer) and its iteration cap live in the graph, not in hand-rolled glue.</td>
           </tr>
           <tr>
-            <td class="id">ADR-002</td><td>Turbovec in-process vector index</td>
-            <td>Postgres stays the source of truth; vectors rebuild from PG on startup. Dense scoring runs inside the kernel with a metadata allowlist. No second database server, no pgvector.</td>
+            <td class="id">ADR-002</td><td>pgvector (Turbovec replaced)</td>
+            <td>Originally in-process Turbovec; addendum moved vectors to pgvector (<code>chunks.embedding</code>) so Postgres is the index — no second store to sync or rebuild. Dense scoring runs in SQL with a metadata allowlist.</td>
           </tr>
           <tr>
             <td class="id">ADR-003</td><td>Model Gateway</td>
@@ -415,7 +415,7 @@
     <div class="ladder">
       <div class="rung"><span class="rank">1</span><span class="doc">docs/latest-architecture.html</span><span class="why">Overall system design — the frozen V1 picture.</span></div>
       <div class="rung"><span class="rank">2</span><span class="doc">docs/PRD.md</span><span class="why">MVP scope boundary — what ships now vs. what's deferred.</span></div>
-      <div class="rung"><span class="rank">3</span><span class="doc">docs/adr/*</span><span class="why">Locked technology choices — LangGraph, Turbovec, Model Gateway, TanStack AI.</span></div>
+      <div class="rung"><span class="rank">3</span><span class="doc">docs/adr/*</span><span class="why">Locked technology choices — LangGraph, pgvector, Model Gateway, TanStack AI.</span></div>
       <div class="rung"><span class="rank">4</span><span class="doc">docs/specs/*</span><span class="why">Component contracts — inputs, outputs, tools, success criteria per feature.</span></div>
       <div class="rung"><span class="rank">5</span><span class="doc">docs/conventions.md</span><span class="why">Style and structure — folders, naming, approved libraries.</span></div>
     </div>

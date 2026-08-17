@@ -97,7 +97,7 @@ except Exception:
 
 - `get_vector_index()` is a module singleton per process.
 - Worker never notifies API to rebuild.
-- No durable vector store shared across processes (Turbovec is in-process;
+- No durable vector store shared across processes (in-process ANN; the
   numpy fallback is a dict).
 
 **Impactful fix (pick one, ADR if new dep)**
@@ -105,12 +105,12 @@ except Exception:
 | Option | Pros | Cons |
 |---|---|---|
 | **A. Persist embeddings in Postgres** + rebuild/load on API boot + pub/sub rebuild on ingest done | Fits ADR-002 (“Postgres authoritative”) | Schema migration; larger rows |
-| **B. Shared ANN service** (Turbovec server / pgvector / dedicated ANN) | True multi-process | New operational surface |
+| **B. Shared ANN service** (dedicated ANN / pgvector) | True multi-process | New operational surface |
 | **C. Always re-query from PG + embed-on-read for dense** (temporary) | Correct, simple | Slow; not production long-term |
 
 Recommended near-term: **A** — store `chunks.embedding vector` (or `float[]` /
-bytea) at ingest time; API loads into Turbovec/numpy at startup and on
-`ingestion.done` events (Redis pub/sub or arq completion hook).
+bytea) at ingest time; API loads into pgvector (or numpy fallback) at startup
+and on `ingestion.done` events (Redis pub/sub or arq completion hook).
 
 **Effort:** M · **Unblocks:** multi-worker deploy, consistent retrieval
 
@@ -118,9 +118,9 @@ bytea) at ingest time; API loads into Turbovec/numpy at startup and on
 
 ### 3. Add real full-text search infrastructure
 
-**Why it matters:** Hybrid BM25 is half of retrieval quality. Today BM25
-recomputes `to_tsvector('english', text)` on every query with no GIN index —
-fine for a demo corpus, painful and incomplete at scale.
+**Why it matters:** Hybrid PostgreSQL FTS is half of retrieval quality. Today
+`ts_rank_cd` runs over the persisted `chunks.tsv` generated column with a GIN
+index — no per-query `to_tsvector()` recomputation.
 
 **Current gap**
 
@@ -136,7 +136,7 @@ CREATE INDEX chunks_tsv_idx ON chunks USING GIN (tsv);
 -- trigger: NEW.tsv := to_tsvector('english', NEW.text)
 ```
 
-- Switch `_bm25_search` to rank on `Chunk.tsv` (or raw SQL) instead of
+- Switch `_fts_search` to rank on `Chunk.tsv` (or raw SQL) instead of
   `to_tsvector` on every row.
 - Backfill existing chunks in the migration.
 
@@ -146,18 +146,20 @@ CREATE INDEX chunks_tsv_idx ON chunks USING GIN (tsv);
 
 ### 4. Run real embedding + rerank services
 
-**Why it matters:** Settings already define both LM Studio and BGE TEI URLs,
-but embedder only talks to LM Studio and degrades silently. Specs/ADR assume
-BGE-M3 + BGE-Reranker-v2-m3.
+**Why it matters:** Embedding quality drives hybrid search quality. Production
+uses Cohere embed-v3 + rerank-v3 via the embedder; reranking is a true
+cross-encoder, not cosine-of-embeddings.
 
 **Current gap**
 
-- `BGE_EMBEDDER_URL` / `BGE_RERANKER_URL` exist in settings but are unused.
-- Rerank is cosine-of-embeddings, not a cross-encoder.
+- Rerank fallbacks (e.g. LM Studio, local TEI endpoints) are optional paths;
+  the primary path is Cohere embed-v3 / rerank-v3.
+- Rerank quality depends on the configured rerank model.
 
 **Impactful fix**
 
-- Wire embedder to TEI (`/embed`, `/rerank`) with LM Studio as optional alt.
+- Wire embedder to Cohere (`COHERE_EMBED_MODEL`, `COHERE_RERANK_MODEL`) with
+  local TEI / LM Studio as optional alt.
 - Prefer true cross-encoder scores for final top-k.
 - Health-check both endpoints at API/worker startup; refuse to start in
   production if missing (see also #1).
@@ -375,7 +377,7 @@ Only after baseline hybrid works:
 | Parent-document / small-to-big expansion | Answers need more context than chunk |
 | MMR diversity | Redundant near-duplicate chunks |
 | Dedicated cross-encoder service | Cosine-rerank plateaus |
-| pgvector dual-write experiment | Turbovec ops pain |
+| pgvector dual-write experiment | In-process ANN ops pain (pgvector is now the index) |
 
 **Effort:** L · **Do not** jump to semantic cache first (PRD Non-Goal)
 
@@ -506,7 +508,7 @@ These often get skipped in agentic RAG builds:
 
 ### Days 0–30 — Honest MVP
 
-1. tsvector migration + BM25 query fix  
+1. tsvector migration + FTS query fix  
 2. Real embed/rerank; strict mode in non-dev  
 3. Durable embeddings or rebuild protocol across API/worker  
 4. Upload validation + shared Redis pool + health checks  
@@ -545,7 +547,7 @@ These often get skipped in agentic RAG builds:
 | 1 | Fail loud on embed/rerank fallback | P0 | S | Stops fake success |
 | 2 | tsvector + GIN | P0 | S | Real keyword search |
 | 3 | Shared/durable vectors across processes | P0 | M | Correctness under worker split |
-| 4 | Real BGE/TEI path | P0 | M | Semantic quality |
+| 4 | Real Cohere embed/rerank path | P0 | M | Semantic quality |
 | 5 | E2E + CI | P0 | M | Confidence to ship |
 | 6 | Deep health + upload limits + retries | P1 | M | Survives first users |
 | 7 | Langfuse on agent path | P1 | S | Debug answers |
