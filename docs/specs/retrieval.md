@@ -55,9 +55,10 @@ a separate lookup step.
   via the integration test described in `conventions.md`).
 
 ## Out of Scope (MVP)
-Semantic cache short-circuit (Redis), permission-aware scoped retrieval
-(RBAC), and any retrieval step triggered by a Planner or Critic — all
-Phase 2 per `PRD.md`.
+Permission-aware scoped retrieval (RBAC), and any retrieval step triggered
+by a Planner or Critic — Phase 2 per `PRD.md`. The semantic cache
+short-circuit is **implemented** (ADR-007, `docs/specs/semantic-cache.md`)
+— it skips this pipeline on a cached hit, it does not change it.
 
 ---
 

@@ -257,8 +257,10 @@ class TestRateLimiting:
         mock_r.expire = mock_expire
         mock_r.ping = mock_ping
 
-        original = rate_limit._redis
-        rate_limit._redis = mock_r
+        from src.shared import redis as redis_module
+
+        original = redis_module._redis
+        redis_module._redis = mock_r
         try:
             # First 5 should pass
             for i in range(5):
@@ -269,7 +271,7 @@ class TestRateLimiting:
             blocked = await rate_limit._check_limit("upload", ip, limit=5)
             assert not blocked, "6th request should be rate limited"
         finally:
-            rate_limit._redis = original
+            redis_module._redis = original
 
     @pytest.mark.asyncio
     async def test_chat_rate_limit_triggers_on_21st_request(self) -> None:
@@ -290,8 +292,10 @@ class TestRateLimiting:
         mock_r.incr = mock_incr
         mock_r.expire = mock_expire
 
-        original = rate_limit._redis
-        rate_limit._redis = mock_r
+        from src.shared import redis as redis_module
+
+        original = redis_module._redis
+        redis_module._redis = mock_r
         try:
             for i in range(20):
                 allowed = await rate_limit._check_limit("chat", ip, limit=20)
@@ -300,21 +304,22 @@ class TestRateLimiting:
             blocked = await rate_limit._check_limit("chat", ip, limit=20)
             assert not blocked, "21st chat request should be rate limited"
         finally:
-            rate_limit._redis = original
+            redis_module._redis = original
 
     @pytest.mark.asyncio
     async def test_rate_limit_allows_all_when_redis_down(self) -> None:
         """When Redis is unavailable, rate limiting is disabled (open by default)."""
         from src.shared import rate_limit
+        from src.shared import redis as redis_module
 
-        original = rate_limit._redis
-        rate_limit._redis = False  # simulate Redis down
+        original = redis_module._redis
+        redis_module._redis = False  # simulate Redis down
 
         try:
             allowed = await rate_limit._check_limit("upload", "1.2.3.4", limit=1)
             assert allowed, "Should allow when Redis is down"
         finally:
-            rate_limit._redis = original
+            redis_module._redis = original
 
 
 class TestRetryBehavior:

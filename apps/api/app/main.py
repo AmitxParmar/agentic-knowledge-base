@@ -32,7 +32,7 @@ from src.research.voice_router import router as voice_router
 from src.shared.database import connect as db_connect
 from src.shared.database import disconnect as db_disconnect
 from src.shared.errors import register_error_handlers
-from src.shared.rate_limit import close_redis
+from src.shared.redis import close_redis
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
 
         # Redis check
         try:
-            from src.shared.rate_limit import _get_redis
+            from src.shared.redis import redis_client as _get_redis
             r = await asyncio.wait_for(_get_redis(), timeout=2)
             if r and r is not False:
                 await asyncio.wait_for(r.ping(), timeout=2)

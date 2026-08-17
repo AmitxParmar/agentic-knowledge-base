@@ -154,6 +154,22 @@ class Settings(BaseSettings):
     UPLOAD_RATE_LIMIT: int = Field(default=5, description="Uploads per minute per IP")
     CHAT_RATE_LIMIT: int = Field(default=20, description="Chat requests per minute per IP")
 
+    # ── Semantic Cache (ADR-007) ─────────────────────────────────────────
+    # Caches completed research answers keyed by query embedding similarity.
+    # Disabled by default; set to true when usage volume justifies it.
+    SEMANTIC_CACHE_ENABLED: bool = Field(
+        default=False,
+        description="Enable semantic answer caching (Redis + Cohere embeddings)",
+    )
+    SEMANTIC_CACHE_TTL: int = Field(
+        default=3600,
+        description="Semantic cache TTL in seconds (default 1 hour)",
+    )
+    SEMANTIC_CACHE_THRESHOLD: float = Field(
+        default=0.85,
+        description="Cosine similarity threshold for semantic cache hit (0.0-1.0)",
+    )
+
     # ── Voice agent (ADR-006) ─────────────────────────────────────────────
     # STT: faster-whisper (already a dependency) — model name is a HuggingFace
     # repo or "small"/"medium"/"large-v3-turbo". small + int8 = sub-second on

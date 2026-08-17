@@ -8,43 +8,15 @@ Concurrency semaphores: module-level, lazily created.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time
-from typing import Any
 
 from fastapi import HTTPException, Request
 
 from app.settings import settings
+from src.shared.redis import redis_client
 
 logger = logging.getLogger(__name__)
-
-# ── Redis client (lazy singleton) ─────────────────────────────────────────────
-
-_redis: Any = None
-
-
-async def _get_redis() -> Any:
-    global _redis
-    if _redis is not None:
-        return _redis
-    try:
-        import redis.asyncio as aioredis  # type: ignore[import-untyped]
-
-        _redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-    except Exception:
-        logger.warning("rate_limit: Redis unavailable — rate limiting disabled")
-        _redis = False
-    return _redis
-
-
-async def close_redis() -> None:
-    """Close the Redis connection on shutdown."""
-    global _redis
-    if _redis and _redis is not False:
-        with contextlib.suppress(Exception):
-            await _redis.aclose()
-        _redis = None
 
 
 # ── Fixed-window counter ──────────────────────────────────────────────────────
@@ -56,7 +28,7 @@ async def _check_limit(route: str, ip: str, limit: int) -> bool:
     Key: rl:{route}:{ip}:{minute_bucket}
     Falls back to allow-all if Redis is unavailable.
     """
-    r = await _get_redis()
+    r = await redis_client()
     if not r:
         return True  # Redis down → open
 

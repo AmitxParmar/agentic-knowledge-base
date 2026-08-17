@@ -59,7 +59,7 @@ The MVP is successful if all four hold up reliably under normal use.
 | Planner Agent | Single-question MVP doesn't need multi-hop task decomposition yet |
 | Critic Agent / reflection loop | Add once we can measure how often the Researcher actually needs it |
 | Plan Cache | Has nothing to reuse until the Planner exists |
-| Semantic Cache (Redis) | Optimization; premature before usage volume exists |
+| Semantic Cache (Redis) | ~~Optimization; premature before usage volume exists~~ — **implemented** as ADR-007, feature-flagged off by default |
 | Working Memory / Semantic Memory / Conversation Summaries | Multi-session memory isn't required for a single ask-and-answer loop |
 | MCP Tool Layer (web search, GitHub, filesystem tools) | Research Agent's MVP tool is retrieval-over-uploads only |
 | RBAC / Scoped Retrieval / Secret Management / Tool Guardrails | Single-tenant MVP; full security zone waits for multi-tenant need |

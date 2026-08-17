@@ -42,6 +42,7 @@ from src.shared.database import get_session
 from src.shared.model_gateway import ProviderError, RateLimitError
 from src.shared.progress import ResearchStage, emit, emit_done, emit_error
 from src.shared.rate_limit import check_chat_rate_limit
+from src.shared.semantic_cache import SemanticCache
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -70,6 +71,18 @@ def _error_code(exc: Exception) -> str:
     return "AGENT_ERROR"
 
 
+def _citation_payload(citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalize agent citations to the wire format (ux.md citation display)."""
+    return [
+        {
+            "chunk_id": c["chunk_id"],
+            "source_ref": c["source_ref"],
+            "relevance_score": round(c.get("relevance_score", 0.0), 4),
+        }
+        for c in citations
+    ]
+
+
 @router.websocket("/ws")
 async def research_websocket(
     ws: WebSocket,
@@ -94,6 +107,36 @@ async def research_websocket(
 
         if not question:
             await emit_error(ws, "Question cannot be empty.")
+            await ws.close()
+            return
+
+        # Semantic cache — return the cached answer on a similar-question hit,
+        # skipping the full pipeline (ADR-007). Never raises; a Redis failure
+        # degrades to a normal run.
+        cache = SemanticCache()
+        hit = await cache.lookup(str(workspace_id), question)
+        if hit:
+            run = ResearchRun(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                question=question,
+                answer=hit.answer,
+                status=RunStatus.complete,
+                completed_at=datetime.now(UTC),
+            )
+            session.add(run)
+            await session.commit()
+            # Replay the fixed stage vocabulary so the UI behaves identically
+            # to a live run (ux.md vocabulary only).
+            for stage in ResearchStage:
+                await emit(ws, stage)
+            await ws.send_text(json.dumps({
+                "type": "answer",
+                "run_id": str(run.id),
+                "text": hit.answer,
+                "citations": _citation_payload(hit.citations),
+            }))
+            await emit_done(ws)
             await ws.close()
             return
 
@@ -128,20 +171,18 @@ async def research_websocket(
             run.completed_at = datetime.now(UTC)
             await session.commit()
 
+            # Cache the completed answer — best-effort, never blocks the run
+            await cache.store(
+                str(workspace_id), question, result.answer, result.citations, result.confidence
+            )
+
         # Send the final answer with citations
         # Citations include source_ref for the UI to display (ux.md citation display requirement)
         await ws.send_text(json.dumps({
             "type": "answer",
             "run_id": str(run.id),
             "text": result.answer,
-            "citations": [
-                {
-                    "chunk_id": c["chunk_id"],
-                    "source_ref": c["source_ref"],
-                    "relevance_score": round(c.get("relevance_score", 0.0), 4),
-                }
-                for c in result.citations
-            ],
+            "citations": _citation_payload(result.citations),
         }))
         await emit_done(ws)
 
@@ -214,6 +255,38 @@ async def agui_event_stream(
     yield {"type": "RUN_STARTED", "threadId": str(run_id), "runId": str(run_id)}
     yield {"type": "TEXT_MESSAGE_START", "messageId": message_id, "role": "assistant"}
 
+    # Semantic cache — short-circuit on a similar-question hit (ADR-007).
+    # ponytail: keyed on the question only; multi-turn context is ignored,
+    # TTL (1h default) bounds the staleness window.
+    cache = SemanticCache()
+    hit = await cache.lookup(str(workspace_id), question)
+    if hit:
+        run = ResearchRun(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            question=question,
+            answer=hit.answer,
+            status=RunStatus.complete,
+            completed_at=datetime.now(UTC),
+        )
+        session.add(run)
+        await session.commit()
+        for stage in ResearchStage:
+            yield {"type": "CUSTOM", "name": "stage", "value": {"stage": stage.value}}
+        yield {
+            "type": "CUSTOM",
+            "name": "citations",
+            "value": {
+                "run_id": str(run.id),
+                "confidence": hit.confidence,
+                "citations": _citation_payload(hit.citations),
+            },
+        }
+        yield {"type": "TEXT_MESSAGE_CONTENT", "messageId": message_id, "delta": hit.answer}
+        yield {"type": "TEXT_MESSAGE_END", "messageId": message_id}
+        yield {"type": "RUN_FINISHED", "threadId": str(run_id), "runId": str(run_id)}
+        return
+
     run = ResearchRun(
         workspace_id=workspace_id,
         user_id=user_id,
@@ -261,6 +334,11 @@ async def agui_event_stream(
             run.completed_at = datetime.now(UTC)
             await session.commit()
 
+            # Cache the completed answer — best-effort, never blocks the run
+            await cache.store(
+                str(workspace_id), question, result.answer, result.citations, result.confidence
+            )
+
         # Citations carry source_ref + relevance_score for the UI to resolve
         # the [n] markers in the answer (ux.md citation display requirement).
         # Confidence flags runs where evidence was thin so the UI can warn.
@@ -270,14 +348,7 @@ async def agui_event_stream(
             "value": {
                 "run_id": str(run.id),
                 "confidence": result.confidence,
-                "citations": [
-                    {
-                        "chunk_id": c["chunk_id"],
-                        "source_ref": c["source_ref"],
-                        "relevance_score": round(c.get("relevance_score", 0.0), 4),
-                    }
-                    for c in result.citations
-                ],
+                "citations": _citation_payload(result.citations),
             },
         }
         yield {"type": "TEXT_MESSAGE_CONTENT", "messageId": message_id, "delta": result.answer}
