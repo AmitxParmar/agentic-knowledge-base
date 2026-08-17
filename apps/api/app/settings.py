@@ -127,7 +127,9 @@ class Settings(BaseSettings):
     # ── Hardening / Reliability ──────────────────────────────────────────────
     # Timeouts (seconds)
     MODEL_GATEWAY_TIMEOUT: int = Field(default=30, description="Model gateway total timeout")
-    MODEL_GATEWAY_CONNECT_TIMEOUT: int = Field(default=10, description="Model gateway connect timeout")
+    MODEL_GATEWAY_CONNECT_TIMEOUT: int = Field(
+        default=10, description="Model gateway connect timeout"
+    )
     RETRIEVAL_EMBED_TIMEOUT: int = Field(default=20, description="Embedding request timeout")
     RETRIEVAL_RERANK_TIMEOUT: int = Field(default=15, description="Rerank request timeout")
     RETRIEVAL_VECTOR_SEARCH_TIMEOUT: int = Field(default=5, description="Vector search timeout")
@@ -136,17 +138,55 @@ class Settings(BaseSettings):
     PDF_PARSE_TIMEOUT: int = Field(default=10, description="PDF parsing timeout")
 
     # Upload limits
-    MAX_UPLOAD_SIZE: int = Field(default=100 * 1024 * 1024, description="Max upload size in bytes (100 MB)")
+    MAX_UPLOAD_SIZE: int = Field(
+        default=100 * 1024 * 1024, description="Max upload size in bytes (100 MB)"
+    )
     MAX_PDF_PAGES: int = Field(default=100, description="Maximum PDF pages allowed")
 
     # Concurrency
     EMBED_BATCH_SIZE: int = Field(default=64, description="Embedding batch size (Cohere limit: 96)")
-    MAX_CONCURRENT_INDEXING: int = Field(default=2, description="Max concurrent indexing jobs per user")
+    MAX_CONCURRENT_INDEXING: int = Field(
+        default=2, description="Max concurrent indexing jobs per user"
+    )
     MAX_CONCURRENT_PDF_PARSES: int = Field(default=2, description="Max concurrent PDF parses")
 
     # Rate limits
     UPLOAD_RATE_LIMIT: int = Field(default=5, description="Uploads per minute per IP")
     CHAT_RATE_LIMIT: int = Field(default=20, description="Chat requests per minute per IP")
+
+    # ── Voice agent (ADR-006) ─────────────────────────────────────────────
+    # STT: faster-whisper (already a dependency) — model name is a HuggingFace
+    # repo or "small"/"medium"/"large-v3-turbo". small + int8 = sub-second on
+    # short utterances; raise for accuracy.
+    VOICE_STT_MODEL: str = Field(
+        default="small", description="faster-whisper model name for voice STT"
+    )
+    VOICE_DEVICE: str = Field(default="cpu", description="Inference device: cpu | cuda)")
+    VOICE_CPU_THREADS: int = Field(default=4, description="CPU threads for whisper STT")
+    VOICE_STT_TIMEOUT: int = Field(default=20, description="Max seconds for one transcription")
+    # Silero VAD endpointing thresholds (instinct-tuned, ADR-006):
+    VOICE_VAD_THRESHOLD: float = Field(
+        default=0.5, description="Silero speech probability threshold"
+    )
+    VOICE_VAD_SILENCE_MS: int = Field(
+        default=800, description="Trailing silence that ends an utterance"
+    )
+    VOICE_VAD_MIN_SPEECH_MS: int = Field(
+        default=250, description="Minimum speech to keep an utterance"
+    )
+    VOICE_VAD_MAX_SPEECH_MS: int = Field(default=15000, description="Hard cap on one utterance")
+    VOICE_VAD_ENERGY_FLOOR: float = Field(
+        default=0.01, description="RMS gate before running the neural VAD"
+    )
+    # TTS: edge-tts (ADR-006). Voice names: see edge-tts list_voices().
+    VOICE_TTS_VOICE: str = Field(
+        default="en-US-AriaNeural", description="edge-tts voice for TTS output"
+    )
+    # Interrupt: when True, an incoming utterance cuts off playing TTS audio.
+    VOICE_INTERRUPTIBLE: bool = Field(
+        default=True, description="Stop TTS when the user starts speaking again"
+    )
+    VOICE_RATE_LIMIT: int = Field(default=20, description="Voice turns per minute per IP")
 
     # Retries
     RETRY_MAX_ATTEMPTS: int = Field(default=3, description="Max retry attempts")

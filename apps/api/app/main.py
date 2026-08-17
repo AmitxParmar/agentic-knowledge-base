@@ -28,6 +28,7 @@ from src.ingestion.router import router as ingestion_router
 from src.observability.setup import configure as configure_observability
 from src.research.conversations_router import router as conversations_router
 from src.research.router import router as research_router
+from src.research.voice_router import router as voice_router
 from src.shared.database import connect as db_connect
 from src.shared.database import disconnect as db_disconnect
 from src.shared.errors import register_error_handlers
@@ -103,6 +104,7 @@ def create_app() -> FastAPI:
     # ── Routers ───────────────────────────────────────────────────────────
     app.include_router(ingestion_router, prefix="/api/ingestion", tags=["ingestion"])
     app.include_router(research_router, prefix="/api/research", tags=["research"])
+    app.include_router(voice_router, prefix="/api/research", tags=["voice"])
     app.include_router(conversations_router, prefix="/api/conversations", tags=["conversations"])
 
     # ── Health endpoints ──────────────────────────────────────────────────

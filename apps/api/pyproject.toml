@@ -47,6 +47,7 @@ dependencies = [
     "structlog>=24.0",       # structured logging complement to logfire
     "websockets>=15.0.1",
     "pypdf>=6.14.2",
+    "edge-tts>=7.0",
 ]
 
 [dependency-groups]
