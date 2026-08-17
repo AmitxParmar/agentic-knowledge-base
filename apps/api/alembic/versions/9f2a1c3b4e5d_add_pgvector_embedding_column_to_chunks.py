@@ -8,7 +8,7 @@ Stores chunk embeddings in Postgres (pgvector) so the vector index survives
 cold starts — no in-memory Turbovec rebuild or re-embedding on boot.
 
 NOTE: dimension is fixed at migration time. Must match settings.EMBEDDING_DIM
-(1024 for BGE-M3). Changing embedding models later requires a new migration.
+(1024 for Cohere embed-v3). Changing embedding models later requires a new migration.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pgvector.sqlalchemy import Vector
 
 from alembic import op
 
-# BGE-M3 dimension (must equal settings.EMBEDDING_DIM)
+# Cohere embed-v3 dimension (must equal settings.EMBEDDING_DIM)
 EMBEDDING_DIM = 1024
 
 # revision identifiers, used by Alembic.

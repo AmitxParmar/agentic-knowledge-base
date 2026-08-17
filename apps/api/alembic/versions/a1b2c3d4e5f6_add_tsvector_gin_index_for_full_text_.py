@@ -4,11 +4,11 @@ Revision ID: a1b2c3d4e5f6
 Revises: 9f2a1c3b4e5d
 Create Date: 2026-08-04 16:26:42.137834
 
-BM25 ranking previously computed to_tsvector() on the fly for every query
+Full-text ranking previously computed to_tsvector() on the fly for every query
 against every candidate row — no index, O(n) scan. This adds a generated
-`tsv` column (always in sync with text) plus a GIN index so full-text search
-uses the index instead of a table scan. Generated column keeps it in sync
-without a trigger.
+`tsv` column (always in sync with text) plus a GIN index so PostgreSQL
+full-text search uses the index instead of a table scan. Generated column
+keeps it in sync without a trigger.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def upgrade() -> None:
         "ADD COLUMN tsv tsvector GENERATED ALWAYS AS "
         "(to_tsvector('english', text)) STORED"
     )
-    # GIN index makes the @@@ operator in BM25 searches index-backed.
+    # GIN index makes the @@ operator in full-text searches index-backed.
     op.execute("CREATE INDEX ix_chunks_tsv_gin ON chunks USING GIN (tsv)")
 
 

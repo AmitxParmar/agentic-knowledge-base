@@ -114,8 +114,8 @@ class Chunk(Base):
     # Inherited metadata from document-level extraction (author, date, category, page, etc.)
     # ponytail: renamed from 'metadata' to avoid SQLAlchemy Base.metadata conflict
     chunk_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    # Generated tsvector column for BM25 full-text search — computed by Postgres,
-    # never written from Python. Read-only in the ORM (FetchedValue).
+    # Generated tsvector column for PostgreSQL full-text search — computed by
+    # Postgres, never written from Python. Read-only in the ORM (FetchedValue).
     tsv: Mapped[str | None] = mapped_column(server_default=FetchedValue(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

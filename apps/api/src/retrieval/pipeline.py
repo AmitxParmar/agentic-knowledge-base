@@ -1,7 +1,7 @@
 """
 retrieval/pipeline.py
 ---------------------
-Hybrid retrieval pipeline: HyDE rewrite, dense+keyword fusion, rerank.
+Hybrid retrieval pipeline: HyDE rewrite, dense+PostgreSQL FTS fusion, rerank.
 """
 
 from __future__ import annotations
@@ -99,8 +99,8 @@ async def _hybrid_search(
     dense_results = await vector_search(
         query_vector, id_allowlist=id_allowlist, top_k=pool, session=session
     )
-    bm25_results = await _bm25_search(query, id_allowlist, session, top_k=pool)
-    fused_ids = _reciprocal_rank_fusion(dense_results, bm25_results, pool=pool)
+    fts_results = await _fts_search(query, id_allowlist, session, top_k=pool)
+    fused_ids = _reciprocal_rank_fusion(dense_results, fts_results, pool=pool)
     return await _hydrate_chunks(fused_ids, session)
 
 
@@ -116,13 +116,19 @@ async def _get_workspace_chunk_ids(
     return [row[0] for row in result.all()]
 
 
-async def _bm25_search(
+async def _fts_search(
     query: str,
     id_allowlist: list[str],
     session: AsyncSession,
     *,
     top_k: int,
 ) -> list[tuple[str, float]]:
+    """PostgreSQL Full-Text Search over the GIN-backed `tsv` column.
+
+    `ts_rank_cd` is PostgreSQL's cover-density ranking — not BM25. The
+    generated `chunks.tsv` column is indexed, so no `to_tsvector()` is
+    recomputed per query.
+    """
     ts_query = func.plainto_tsquery("english", query)
     rank = func.ts_rank_cd(Chunk.tsv, ts_query)
 
@@ -138,7 +144,7 @@ async def _bm25_search(
 
 def _reciprocal_rank_fusion(
     dense: list[VectorSearchResult],
-    bm25: list[tuple[str, float]],
+    fts: list[tuple[str, float]],
     *,
     pool: int,
     k: int = 60,
@@ -148,7 +154,7 @@ def _reciprocal_rank_fusion(
     for rank, result in enumerate(dense, start=1):
         scores[result.id] = scores.get(result.id, 0.0) + 1.0 / (k + rank)
 
-    for rank, (turbovec_id, _) in enumerate(bm25, start=1):
+    for rank, (turbovec_id, _) in enumerate(fts, start=1):
         scores[turbovec_id] = scores.get(turbovec_id, 0.0) + 1.0 / (k + rank)
 
     return sorted(scores, key=lambda item: scores[item], reverse=True)[:pool]

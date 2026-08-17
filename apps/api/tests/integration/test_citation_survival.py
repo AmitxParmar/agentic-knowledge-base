@@ -3,7 +3,7 @@ Integration test: citation reference survives from retrieval → agent → respo
 conventions.md requires this test: "retrieval pipeline needs an integration test
 that asserts citations survive the full path."
 
-This test mocks the DB and BGE endpoints to stay fast, but exercises the real
+This test mocks the DB and embedding endpoints to stay fast, but exercises the real
 RRF fusion, reranker ordering, and citation-at-retrieval accumulation logic.
 """
 
@@ -26,25 +26,25 @@ def test_reciprocal_rank_fusion_merges_and_orders() -> None:
         VectorSearchResult(id="chunk-B", score=0.8),
         VectorSearchResult(id="chunk-C", score=0.7),
     ]
-    bm25 = [
-        ("chunk-C", 1.5),  # BM25 likes C more
+    fts = [
+        ("chunk-C", 1.5),  # FTS likes C more
         ("chunk-A", 1.2),
-        ("chunk-D", 0.9),  # only in BM25
+        ("chunk-D", 0.9),  # only in FTS
     ]
-    result = _reciprocal_rank_fusion(dense, bm25, pool=10)
+    result = _reciprocal_rank_fusion(dense, fts, pool=10)
 
     # chunk-A appears in both lists and should rank highly
     assert "chunk-A" in result
     assert "chunk-C" in result
-    # chunk-D only in BM25, still included
+    # chunk-D only in FTS, still included
     assert "chunk-D" in result
 
 
 def test_rrf_deduplicates() -> None:
     """Same chunk in both lists should appear only once."""
     dense = [VectorSearchResult(id="chunk-X", score=0.95)]
-    bm25 = [("chunk-X", 2.0)]
-    result = _reciprocal_rank_fusion(dense, bm25, pool=10)
+    fts = [("chunk-X", 2.0)]
+    result = _reciprocal_rank_fusion(dense, fts, pool=10)
     assert result.count("chunk-X") == 1
 
 
