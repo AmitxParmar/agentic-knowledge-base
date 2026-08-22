@@ -106,3 +106,4 @@ uvicorn.log
 graphify-out/
 .commandcode/
 .understand-anything/
+.zcode/
