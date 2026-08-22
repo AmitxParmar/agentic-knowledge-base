@@ -26,6 +26,7 @@ import src.shared.models  # noqa: F401
 from app.settings import settings
 from src.ingestion.router import router as ingestion_router
 from src.observability.setup import configure as configure_observability
+from src.observability.setup import flush_langfuse
 from src.research.conversations_router import router as conversations_router
 from src.research.router import router as research_router
 from src.research.voice_router import router as voice_router
@@ -52,6 +53,7 @@ async def lifespan(app: FastAPI):
     # ── Shutdown ──────────────────────────────────────────────────────────
     await db_disconnect()
     await close_redis()
+    flush_langfuse()  # push tail spans before the batch exporter dies with the process
     logfire.info("app.stopped")
 
 

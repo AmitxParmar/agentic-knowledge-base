@@ -27,6 +27,7 @@ import litellm
 import logfire
 
 from app.settings import settings
+from src.observability.setup import traced_observation
 from src.shared.retry import (
     RetryableError,
     is_retryable_exception,
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 # ── Typed errors ─────────────────────────────────────────────────────────────
 # Callers (routers, agents) classify failures by these types to surface
 # accurate, user-facing error codes instead of a single generic AGENT_ERROR.
+
 
 class ModelGatewayError(Exception):
     """Base class for every model gateway failure."""
@@ -57,6 +59,7 @@ class RateLimitError(ModelGatewayError):
 # responses; its narrow stubs don't expose attributes off a single union member.
 # We use this minimal Protocol (same ponytail pattern as the old module) to keep
 # the gateway decoupled from any one SDK's typing.
+
 
 class _ResponseMessage(Protocol):
     content: str | None
@@ -79,9 +82,11 @@ class _CompletionResponse(Protocol):
 # ── Response types ──────────────────────────────────────────────────────────
 # Callers never import a provider SDK — these lightweight types are all they see.
 
+
 @dataclass
 class ToolFunction:
     """A parsed function call requested by the model."""
+
     name: str
     arguments: dict[str, Any]  # parsed from JSON, not a raw string
 
@@ -89,6 +94,7 @@ class ToolFunction:
 @dataclass
 class ToolCall:
     """One tool invocation requested by the model."""
+
     id: str
     function: ToolFunction
 
@@ -101,6 +107,7 @@ class GatewayResponse:
     - complete_with_tools() may populate both.
     - usage carries the provider's token counts for cost metering.
     """
+
     content: str | None
     tool_calls: list[ToolCall] | None = None
     usage: _ResponseUsage | None = None
@@ -124,6 +131,7 @@ _sync_env("OPENROUTER_API_KEY", settings.MODEL_GATEWAY_OPENROUTER_API_KEY)
 
 
 # ── Core LLM call ───────────────────────────────────────────────────────────
+
 
 def _resolve_models(model: str | None) -> tuple[str, str]:
     """
@@ -177,76 +185,128 @@ async def _call_llm(
     if tools is not None:
         kwargs["tools"] = tools
 
-    with logfire.span(
-        "model_gateway.call",
-        model=primary_model,
-        has_tools=tools is not None,
-    ):
-        async def _do_call() -> Any:
-            return await asyncio.wait_for(
-                litellm.acompletion(**kwargs),
-                timeout=settings.MODEL_GATEWAY_TIMEOUT,
-            )
+    with traced_observation(
+        "generate-response",
+        as_type="generation",
+        input=messages,
+        metadata={"has_tools": tools is not None, "temperature": temperature},
+    ) as generation:
+        with logfire.span(
+            "model_gateway.call",
+            model=primary_model,
+            has_tools=tools is not None,
+        ):
 
-        try:
-            raw = await with_retry(
-                _do_call,
-                max_attempts=settings.RETRY_MAX_ATTEMPTS,
-                base_delay=settings.RETRY_BASE_DELAY,
-                max_delay=settings.RETRY_MAX_DELAY,
-                retryable_exceptions=(
-                    asyncio.TimeoutError,
-                    ConnectionError,
-                    IOError,
-                    OSError,
-                ),
-            )
-        except TimeoutError:
-            logger.error("model_gateway: call timed out after %ss", settings.MODEL_GATEWAY_TIMEOUT)
-            logfire.error("model_gateway.call.timeout", model=primary_model)
-            raise ProviderError("Model request timed out") from None
-        except Exception as exc:  # surface any provider failure uniformly
-            logger.exception("model_gateway: LiteLLM call failed")
-            logfire.error("model_gateway.call.failed", model=primary_model, error=str(exc))
-            # All providers have been exhausted by LiteLLM's controller.
-            if is_retryable_exception(exc):
-                raise RetryableError(str(exc)) from exc
-            raise _classify_provider_error(exc) from exc
-        resp = cast(_CompletionResponse, raw)
+            async def _do_call() -> Any:
+                return await asyncio.wait_for(
+                    litellm.acompletion(**kwargs),
+                    timeout=settings.MODEL_GATEWAY_TIMEOUT,
+                )
 
-    # Parse the LiteLLM (OpenAI-compatible) response into our lightweight types.
-    msg = resp.choices[0].message
-    parsed_calls: list[ToolCall] | None = None
-    if msg.tool_calls:
-        parsed_calls = []
-        for tc in msg.tool_calls:
             try:
-                arguments = json.loads(tc.function.arguments)
-            except (json.JSONDecodeError, TypeError):
-                # Malformed tool-call arguments would otherwise abort the whole
-                # run. Skip the broken call; the agent loop can retry/answer.
-                logger.warning("model_gateway: skipping tool call with malformed JSON args (%s)", tc.function.name)
-                continue
-            parsed_calls.append(
-                ToolCall(
-                    id=tc.id,
-                    function=ToolFunction(
-                        name=tc.function.name,
-                        # Parse JSON arguments into a dict — callers get a ready-to-use
-                        # dict rather than a raw JSON string.
-                        arguments=arguments,
+                raw = await with_retry(
+                    _do_call,
+                    max_attempts=settings.RETRY_MAX_ATTEMPTS,
+                    base_delay=settings.RETRY_BASE_DELAY,
+                    max_delay=settings.RETRY_MAX_DELAY,
+                    retryable_exceptions=(
+                        asyncio.TimeoutError,
+                        ConnectionError,
+                        IOError,
+                        OSError,
                     ),
                 )
-            )
+            except TimeoutError:
+                logger.error(
+                    "model_gateway: call timed out after %ss", settings.MODEL_GATEWAY_TIMEOUT
+                )
+                logfire.error("model_gateway.call.timeout", model=primary_model)
+                generation.update(level="ERROR", status_message="provider request timed out")
+                raise ProviderError("Model request timed out") from None
+            except Exception as exc:  # surface any provider failure uniformly
+                logger.exception("model_gateway: LiteLLM call failed")
+                logfire.error("model_gateway.call.failed", model=primary_model, error=str(exc))
+                generation.update(level="ERROR", status_message=type(exc).__name__)
+                # All providers have been exhausted by LiteLLM's controller.
+                if is_retryable_exception(exc):
+                    raise RetryableError(str(exc)) from exc
+                raise _classify_provider_error(exc) from exc
+            resp = cast(_CompletionResponse, raw)
 
-    logfire.info(
-        "model_gateway.call.ok",
-        model=primary_model,
-        tokens_used=resp.usage.total_tokens if resp.usage else None,
-        tool_calls=len(parsed_calls) if parsed_calls else 0,
-    )
+        # Parse the LiteLLM (OpenAI-compatible) response into our lightweight types.
+        msg = resp.choices[0].message
+        parsed_calls: list[ToolCall] | None = None
+        if msg.tool_calls:
+            parsed_calls = []
+            for tc in msg.tool_calls:
+                try:
+                    arguments = json.loads(tc.function.arguments)
+                except (json.JSONDecodeError, TypeError):
+                    # Malformed tool-call arguments would otherwise abort the whole
+                    # run. Skip the broken call; the agent loop can retry/answer.
+                    logger.warning(
+                        "model_gateway: skipping tool call with malformed JSON args (%s)",
+                        tc.function.name,
+                    )
+                    continue
+                parsed_calls.append(
+                    ToolCall(
+                        id=tc.id,
+                        function=ToolFunction(
+                            name=tc.function.name,
+                            # Parse JSON arguments into a dict — callers get a ready-to-use
+                            # dict rather than a raw JSON string.
+                            arguments=arguments,
+                        ),
+                    )
+                )
 
-    return GatewayResponse(content=msg.content, tool_calls=parsed_calls, usage=resp.usage)
+        # Record what the model actually returned on the Langfuse generation:
+        # bare model name (cost table matches without the LiteLLM prefix),
+        # token usage (powers cost/dashboards), OpenAI-shaped output.
+        usage = getattr(resp, "usage", None)
+        generation.update(
+            output=_assistant_output(msg),
+            model=_bare_model_name(str(getattr(resp, "model", "") or primary_model)),
+            usage_details={
+                "input": getattr(usage, "prompt_tokens", 0) or 0,
+                "output": getattr(usage, "completion_tokens", 0) or 0,
+                "total": getattr(usage, "total_tokens", 0) or 0,
+            }
+            if usage is not None
+            else None,
+        )
+
+        logfire.info(
+            "model_gateway.call.ok",
+            model=primary_model,
+            tokens_used=resp.usage.total_tokens if resp.usage else None,
+            tool_calls=len(parsed_calls) if parsed_calls else 0,
+        )
+
+        return GatewayResponse(content=msg.content, tool_calls=parsed_calls, usage=resp.usage)
+
+
+def _bare_model_name(model: str) -> str:
+    """Strip LiteLLM's provider prefix ("groq/x", "openrouter/a/b") so the
+    model attribute matches entries in Langfuse's cost/pricing table."""
+    return model.rsplit("/", 1)[-1]
+
+
+def _assistant_output(msg: Any) -> dict[str, Any]:
+    """Assistant message in OpenAI format so Langfuse renders it readably;
+    tool calls keep their original JSON-encoded argument strings."""
+    output: dict[str, Any] = {"role": "assistant", "content": msg.content}
+    if msg.tool_calls:
+        output["tool_calls"] = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+            }
+            for tc in msg.tool_calls
+        ]
+    return output
 
 
 def _is_rate_limit(exc: Exception) -> bool:
@@ -264,6 +324,7 @@ def _classify_provider_error(exc: Exception) -> ModelGatewayError:
 
 
 # ── Public interface ──────────────────────────────────────────────────────────
+
 
 async def complete(
     messages: list[dict[str, str]],

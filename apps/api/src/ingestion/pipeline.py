@@ -24,6 +24,7 @@ from src.ingestion.chunker import chunk_document
 from src.ingestion.extractors import extract
 from src.ingestion.models import Chunk, Document, IngestionJob, JobStage
 from src.ingestion.storage import open_ref
+from src.observability.setup import traced_observation
 from src.retrieval.embedder import embed_texts
 from src.shared.database import SessionLocal
 from src.shared.rate_limit import indexing_semaphore, pdf_parse_semaphore
@@ -40,18 +41,25 @@ async def run_ingestion_job(ctx: dict[str, Any], *, document_id: str) -> None:
     doc_uuid = uuid.UUID(document_id)
 
     async with SessionLocal() as session:
-        with logfire.span("ingestion.pipeline", document_id=document_id):
-            try:
-                async with indexing_semaphore():
-                    await _run_pipeline(session, doc_uuid)
-            except Exception as exc:
-                logger.exception("ingestion pipeline failed for document %s", document_id)
-                logfire.error("ingestion.failed", document_id=document_id, error=str(exc))
-                await _mark_failed(session, doc_uuid, str(exc))
-                raise
+        # One trace per ingested document ("one pipeline execution" per the
+        # Langfuse trace-scope guidance); embed-texts children nest beneath it.
+        with traced_observation(
+            "ingest-document",
+            input={"document_id": document_id},
+        ) as observation:
+            with logfire.span("ingestion.pipeline", document_id=document_id):
+                try:
+                    async with indexing_semaphore():
+                        chunk_count = await _run_pipeline(session, doc_uuid)
+                except Exception as exc:
+                    logger.exception("ingestion pipeline failed for document %s", document_id)
+                    logfire.error("ingestion.failed", document_id=document_id, error=str(exc))
+                    await _mark_failed(session, doc_uuid, str(exc))
+                    raise
+            observation.update(output={"chunks": chunk_count})
 
 
-async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> None:
+async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> int:
     doc = await _get_document(session, document_id)
     job = await _get_job(session, document_id)
 
@@ -95,6 +103,7 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> None:
 
     await _update_stage(session, doc, job, JobStage.done)
     logfire.info("ingestion.done", document_id=str(document_id), chunks=len(chunk_rows))
+    return len(chunk_rows)
 
 
 async def _extract_with_timeout(source_path: Any, source_type: str) -> Any:
@@ -123,7 +132,9 @@ async def _get_document(session: AsyncSession, document_id: uuid.UUID) -> Docume
 
 
 async def _get_job(session: AsyncSession, document_id: uuid.UUID) -> IngestionJob:
-    result = await session.execute(select(IngestionJob).where(IngestionJob.document_id == document_id))
+    result = await session.execute(
+        select(IngestionJob).where(IngestionJob.document_id == document_id)
+    )
     job = result.scalar_one_or_none()
     if job is None:
         raise ValueError(f"IngestionJob for document {document_id} not found")

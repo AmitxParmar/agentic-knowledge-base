@@ -267,6 +267,8 @@ async def run_agent(
     *,
     stage_callback: Any = None,
     history: list[dict[str, Any]] | None = None,
+    user_id: str | None = None,
+    session_id: str | None = None,
 ) -> AgentResult:
     messages: list[dict[str, Any]] = [{"role": "system", "content": _SYSTEM_PROMPT}]
 
@@ -305,7 +307,9 @@ async def run_agent(
 
     # Langfuse trace (PRD N3) — no-op when keys are unset. The observation is
     # updated with output + usage just before the context exits.
-    with agent_run_trace(str(run_id), question) as observation:
+    with agent_run_trace(
+        str(run_id), question, user_id=user_id, session_id=session_id
+    ) as observation:
         with logfire.span("research_agent.run", run_id=str(run_id), question=question[:80]):
             final_state = await asyncio.wait_for(
                 graph.ainvoke(initial_state, config=run_config),

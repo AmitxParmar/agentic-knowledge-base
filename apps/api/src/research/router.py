@@ -161,6 +161,7 @@ async def research_websocket(
                 run_id=run.id,
                 session=session,
                 stage_callback=on_stage,
+                user_id=str(user_id),
             )
 
             # Update run with final answer
@@ -246,6 +247,7 @@ async def agui_event_stream(
     user_id: uuid.UUID,
     session: AsyncSession,
     history: list[dict[str, Any]] | None = None,
+    thread_id: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Stream AG-UI events for a research run. Bridges agent callbacks via queue."""
     run_id = uuid.uuid4()
@@ -310,6 +312,9 @@ async def agui_event_stream(
             session=session,
             stage_callback=on_stage,
             history=history,
+            user_id=str(user_id),
+            # Group multi-turn runs of one conversation into a Langfuse session
+            session_id=thread_id or str(run.id),
         )
 
     try:
@@ -403,6 +408,7 @@ async def research_chat(
                 user_id,
                 session,
                 history=request.messages,
+                thread_id=thread_id,
             ):
                 yield f"data: {json.dumps(event)}\n\n"
 

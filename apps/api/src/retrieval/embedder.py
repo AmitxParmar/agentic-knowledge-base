@@ -22,6 +22,7 @@ from typing import Any
 import logfire
 
 from app.settings import settings
+from src.observability.setup import traced_observation
 from src.shared.rate_limit import embed_semaphore
 from src.shared.retry import with_retry
 
@@ -107,6 +108,7 @@ async def embed_texts(
 
 async def _embed_batch(texts: list[str], input_type: str) -> list[list[float]]:
     """Embed a single batch of texts using Cohere embed-v3."""
+
     async def _do_embed() -> list[list[float]]:
         return await asyncio.wait_for(
             _embed_once(texts, input_type),
@@ -134,7 +136,9 @@ async def _embed_batch(texts: list[str], input_type: str) -> list[list[float]]:
         raise EmbeddingError("Embedding timed out and fallback is disabled") from None
     except Exception as exc:
         logger.warning("embedder: Cohere embedding unavailable, using local fallback")
-        logfire.warning("embedder.embed.fallback", provider="local_hash", reason="Cohere unreachable")
+        logfire.warning(
+            "embedder.embed.fallback", provider="local_hash", reason="Cohere unreachable"
+        )
         if settings.ALLOW_EMBEDDING_FALLBACK:
             return _local_embed(texts)
         raise EmbeddingError(f"Embedding provider unavailable: {exc}") from exc
@@ -142,7 +146,17 @@ async def _embed_batch(texts: list[str], input_type: str) -> list[list[float]]:
 
 async def _embed_once(texts: list[str], input_type: str) -> list[list[float]]:
     async with embed_semaphore():
-        with logfire.span("embedder.embed", batch_size=len(texts), input_type=input_type):
+        # Counts, not raw texts — ingestion batches can carry hundreds of
+        # chunks and the vectors themselves are the payload here.
+        with (
+            traced_observation(
+                "embed-texts",
+                as_type="embedding",
+                input={"batch_size": len(texts), "input_type": input_type},
+                metadata={"model": settings.COHERE_EMBED_MODEL},
+            ) as observation,
+            logfire.span("embedder.embed", batch_size=len(texts), input_type=input_type),
+        ):
             resp = await _get_client().embed(
                 model=settings.COHERE_EMBED_MODEL,
                 input_type=input_type,
@@ -150,11 +164,13 @@ async def _embed_once(texts: list[str], input_type: str) -> list[list[float]]:
                 embedding_types=["float"],
             )
             vectors = resp.embeddings.float_
+            dim = len(vectors[0]) if vectors else 0
+            observation.update(output={"vectors": len(vectors), "dimensions": dim})
             logfire.info(
                 "embedder.embed.ok",
                 provider="cohere",
                 vectors=len(vectors),
-                dim=len(vectors[0]) if vectors else 0,
+                dim=dim,
             )
             return [list(vector) for vector in vectors]
 
@@ -173,6 +189,7 @@ async def rerank(query: str, passages: list[str], *, top_k: int | None = None) -
     more relevant. Falls back to cosine-similarity between query and passage
     embeddings if Cohere is unavailable.
     """
+
     async def _do_rerank() -> list[float]:
         return await asyncio.wait_for(
             _rerank_once(query, passages, top_k),
@@ -207,7 +224,15 @@ async def rerank(query: str, passages: list[str], *, top_k: int | None = None) -
 
 
 async def _rerank_once(query: str, passages: list[str], top_k: int | None) -> list[float]:
-    with logfire.span("embedder.rerank", passages=len(passages)):
+    with (
+        traced_observation(
+            "rerank-passages",
+            as_type="retriever",
+            input={"query": query, "passages": len(passages)},
+            metadata={"model": settings.COHERE_RERANK_MODEL},
+        ) as observation,
+        logfire.span("embedder.rerank", passages=len(passages)),
+    ):
         resp = await _get_client().rerank(
             model=settings.COHERE_RERANK_MODEL,
             query=query,
@@ -220,6 +245,9 @@ async def _rerank_once(query: str, passages: list[str], top_k: int | None) -> li
         for item in resp.results:
             scores[item.index] = item.relevance_score
 
+        observation.update(
+            output={"scores": len(scores), "top_score": max(scores) if scores else None}
+        )
         logfire.info("embedder.rerank.ok", provider="cohre", passages=len(passages))
         return scores
 

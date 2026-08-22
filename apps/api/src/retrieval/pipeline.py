@@ -15,6 +15,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ingestion.models import Chunk, Document
+from src.observability.setup import traced_observation
 from src.retrieval.embedder import embed_query, rerank
 from src.retrieval.vector_index import VectorSearchResult, vector_search
 from src.shared.model_gateway import ModelGatewayError, complete
@@ -51,15 +52,32 @@ async def retrieve(
     top_k: int = _TOP_K_FINAL,
 ) -> list[RetrievedChunk]:
     try:
-        with logfire.span("retrieval.pipeline", workspace_id=str(workspace_id)):
+        # Root observation for standalone retrieval calls (HyDE generation,
+        # embed/rerank children nest under it via the shared OTel context).
+        with (
+            traced_observation(
+                "retrieve-context",
+                input={"question": question},
+                metadata={"workspace_id": str(workspace_id)},
+            ) as observation,
+            logfire.span("retrieval.pipeline", workspace_id=str(workspace_id)),
+        ):
             expanded = await _hyde_expand(question)
             candidates = await _hybrid_search(expanded, workspace_id, session, pool=_CANDIDATE_POOL)
             if not candidates:
                 logfire.info("retrieval.no_candidates", workspace_id=str(workspace_id))
+                observation.update(output={"chunks": 0})
                 return []
 
             ranked = await _rerank_candidates(question, candidates)
             selected = _dedup_and_select(ranked, top_k)
+            observation.update(
+                output={"chunks": len(selected)},
+                metadata={
+                    "workspace_id": str(workspace_id),
+                    "candidates": len(candidates),
+                },
+            )
             return selected
     except Exception as exc:
         # Model-provider failures bubble up as typed gateway errors so routers
@@ -196,7 +214,9 @@ def _build_source_ref(doc: Document, chunk: Chunk) -> str:
     return f"{doc.filename}, chunk {page}"
 
 
-async def _rerank_candidates(question: str, candidates: list[RetrievedChunk]) -> list[RetrievedChunk]:
+async def _rerank_candidates(
+    question: str, candidates: list[RetrievedChunk]
+) -> list[RetrievedChunk]:
     scores = await rerank(question, [candidate.chunk_text for candidate in candidates])
     for candidate, score in zip(candidates, scores, strict=True):
         candidate.relevance_score = score

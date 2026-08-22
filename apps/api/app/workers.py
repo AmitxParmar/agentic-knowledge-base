@@ -19,6 +19,7 @@ from arq.connections import RedisSettings
 import src.shared.models  # noqa: F401
 from app.settings import settings
 from src.ingestion.pipeline import run_ingestion_job
+from src.observability.setup import flush_langfuse
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -34,7 +35,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     else:
         # Dev mode: console-only logging
         _ = logfire.configure(send_to_logfire=False)
-    
+
     # Log worker startup
     _ = logfire.info("worker.started", env=settings.APP_ENV)
 
@@ -45,8 +46,10 @@ async def shutdown(ctx: dict[str, Any]) -> None:
     Steps:
       1. Clean up any open resources
       2. Log shutdown event
+      3. Flush pending Langfuse spans so tail traces aren't lost
     """
     _ = logfire.info("worker.stopped")
+    flush_langfuse()
 
 
 class WorkerSettings:
@@ -54,7 +57,7 @@ class WorkerSettings:
     arq worker configuration.
     Defines job functions, lifecycle hooks, Redis connection, and resource limits.
     """
-    
+
     # Job functions to register (arq expects callables)
     # run_ingestion_job has signature: (ctx: dict[str, Any], *, document_id: str) -> None
     functions: ClassVar = [run_ingestion_job]
@@ -67,8 +70,8 @@ class WorkerSettings:
     redis_settings: ClassVar[RedisSettings] = RedisSettings.from_dsn(settings.REDIS_URL)
 
     # Resource limits (tune based on actual load data)
-    max_jobs: int = 4          # max concurrent jobs per worker
-    job_timeout: int = 600     # 10min ceiling per ingestion job
+    max_jobs: int = 4  # max concurrent jobs per worker
+    job_timeout: int = 600  # 10min ceiling per ingestion job
 
     # Retry policy — a transient provider failure no longer permanently fails
     # the document. The job is attempted up to max_tries times (initial + 2
