@@ -213,6 +213,7 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "structlog" },
     { name = "tree-sitter" },
+    { name = "tree-sitter-language-pack" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
 ]
@@ -250,6 +251,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "structlog", specifier = ">=24.0" },
     { name = "tree-sitter", specifier = ">=0.23" },
+    { name = "tree-sitter-language-pack", specifier = ">=1.14.3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
     { name = "websockets", specifier = ">=15.0.1" },
 ]
@@ -4445,6 +4447,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ee/89/9b773dee0f8961d1bb8d7baf0a204ab587618df19897c1ef260916f318ec/tree_sitter_javascript-0.25.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:1b852d3aee8a36186dbcc32c798b11b4869f9b5041743b63b65c2ef793db7a54", size = 98377, upload-time = "2025-09-01T07:13:41.838Z" },
     { url = "https://files.pythonhosted.org/packages/3b/dc/d90cb1790f8cec9b4878d278ad9faf7c8f893189ce0f855304fd704fc274/tree_sitter_javascript-0.25.0-cp310-abi3-win_amd64.whl", hash = "sha256:e5ed840f5bd4a3f0272e441d19429b26eedc257abe5574c8546da6b556865e3c", size = 62975, upload-time = "2025-09-01T07:13:42.828Z" },
     { url = "https://files.pythonhosted.org/packages/2e/1f/f9eba1038b7d4394410f3c0a6ec2122b590cd7acb03f196e52fa57ebbe72/tree_sitter_javascript-0.25.0-cp310-abi3-win_arm64.whl", hash = "sha256:622a69d677aa7f6ee2931d8c77c981a33f0ebb6d275aa9d43d3397c879a9bb0b", size = 61668, upload-time = "2025-09-01T07:13:43.803Z" },
+]
+
+[[package]]
+name = "tree-sitter-language-pack"
+version = "1.14.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tree-sitter" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c5/43/0d186f771ff8558d69439b8f0396263e1f6941872837cab85346aec99f02/tree_sitter_language_pack-1.14.3.tar.gz", hash = "sha256:5f55908261f4ce53cfaea26f3d70f40197733dd06e885a6327cc6e406e269da4", size = 82317, upload-time = "2026-08-05T19:15:34.08Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/07/0ed8acb286353bbc9dc6724c6fc32b902d85a1da16567788d72d74b3ee88/tree_sitter_language_pack-1.14.3-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:3ae067d4114d8b1b1c80fdafe7479f6ebbdee76002e0b357e16c6ace897ba66d", size = 2197537, upload-time = "2026-08-05T19:15:26.639Z" },
+    { url = "https://files.pythonhosted.org/packages/48/bc/ff15c101fb874f8c80f0f722420915884a1233ddae3eff920f56a5b16b76/tree_sitter_language_pack-1.14.3-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:3b56028bba472b774cdd00eedd2744a1e663a003c522c18071642f2501016212", size = 2091122, upload-time = "2026-08-05T19:15:27.868Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/93/fe18a7da47f9189c75584c6996568d6052f0c9b5b29831cc49f213c8b7e0/tree_sitter_language_pack-1.14.3-cp310-abi3-manylinux_2_34_aarch64.whl", hash = "sha256:b13726ed2c402035ed1b601080a3597a3346dd49764f4b92d09c6f5a1d7d1214", size = 2248100, upload-time = "2026-08-05T19:15:29.455Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/5c/70fa8a6d2bcc2578d38e1853382591134584eea8fa9556477c533d793f0c/tree_sitter_language_pack-1.14.3-cp310-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:c9df8545df48ee11744f9fbd1dcc972a270df9ea485321ce29e352dd64cb1a4c", size = 2357083, upload-time = "2026-08-05T19:15:30.787Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/0a/8525e8ac227504bb4cb1691cb07f8c13eae21e8017bf5b3aa126157d4060/tree_sitter_language_pack-1.14.3-cp310-abi3-win_amd64.whl", hash = "sha256:7aa7786929058d948179e99d1ad16a67d105a3d0bdeca2a11ed2b098edeb0a03", size = 2135211, upload-time = "2026-08-05T19:15:31.928Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/b9/3b7ff538a73ecbfa66d0067be7273fa9775bb8ce361b7a436b921f51358f/tree_sitter_language_pack-1.14.3-cp310-abi3-win_arm64.whl", hash = "sha256:4b0874abbc577e6f81c08a81457fdbea7bb10f50d62ebf33aab54f3fef7d6105", size = 2043231, upload-time = "2026-08-05T19:15:33.074Z" },
 ]
 
 [[package]]

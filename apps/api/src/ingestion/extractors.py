@@ -16,6 +16,8 @@ Per ingestion.md:
 from __future__ import annotations
 
 import logging
+import tempfile
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -84,17 +86,25 @@ def extract_audio(path: Path, *, language: str | None = None) -> ExtractedConten
 
 def extract_repo(path: Path | str) -> ExtractedContent:
     """
-    gitingest downloads the repo (if URL) or reads local zip.
+    gitingest downloads the repo (if URL) or reads local path.
     tree-sitter parses each file into AST so chunk boundaries land on
     function/class boundaries — a chunk cut mid-function is worse than no chunk.
 
-    ponytail: gitingest handles the download + file enumeration;
-    tree-sitter handles AST parsing. We combine them here.
+    gitingest only accepts a URL or a local *directory* — it has no zip support.
+    The repo source type arrives as an uploaded archive (e.g. GitHub "Download
+    ZIP"), so unzip to a temp dir before ingesting.
     """
     from gitingest import ingest  # type: ignore[import-untyped]
 
-    # gitingest returns a structured digest of the repo
-    summary, tree, content = ingest(str(path))
+    if _is_zip(path):
+        # Run in the worker's thread pool; blocking unzip is safe here
+        # (pipeline.py calls extract() via run_in_executor).
+        with tempfile.TemporaryDirectory(prefix="reporepo-") as tmpdir:
+            with zipfile.ZipFile(str(path)) as zf:
+                zf.extractall(tmpdir)
+            summary, tree, content = ingest(tmpdir)
+    else:
+        summary, tree, content = ingest(str(path))
 
     # content is a concatenated view of all files with path headers
     # tree-sitter AST parsing for boundary-aware splitting is done in chunker.py
@@ -107,6 +117,14 @@ def extract_repo(path: Path | str) -> ExtractedContent:
 
     logger.info("extract_repo: %s, content_len=%d", path, len(content))
     return ExtractedContent(text=content, doc_metadata=metadata)
+
+
+def _is_zip(path: Path | str) -> bool:
+    """True when the path is a zipfile (checked by magic bytes, not just extension)."""
+    try:
+        return zipfile.is_zipfile(str(path))
+    except OSError:
+        return False
 
 
 # ── Dispatcher ────────────────────────────────────────────────────────────────
