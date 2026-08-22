@@ -18,11 +18,13 @@ from pydantic import BaseModel
 from pypdf import PdfReader
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.settings import settings
 from src.auth.stub import get_user_id, get_workspace_id
 from src.ingestion.models import Chunk, Document, IngestionJob, JobStage, SourceType
 from src.ingestion.storage import store
+from src.research.models import Citation
 from src.shared.database import get_session
 from src.shared.errors import NotFoundError
 from src.shared.rate_limit import check_upload_rate_limit
@@ -113,10 +115,12 @@ async def upload_document(
     content_hash = hashlib.sha256(raw).hexdigest()
 
     existing = await session.execute(
-        select(Document).where(
+        select(Document)
+        .where(
             Document.workspace_id == workspace_id,
             Document.content_hash == content_hash,
         )
+        .options(selectinload(Document.ingestion_job))
     )
     dup = existing.scalar_one_or_none()
     if dup is not None:
@@ -297,7 +301,16 @@ async def delete_document(
     if doc is None:
         raise NotFoundError(f"Document {document_id} not found in workspace")
 
+    # Delete in FK dependency order: citations → chunks → ingestion_job → document.
+    await session.execute(
+        delete(Citation).where(
+            Citation.chunk_id.in_(
+                select(Chunk.id).where(Chunk.document_id == document_id)
+            )
+        )
+    )
     await session.execute(delete(Chunk).where(Chunk.document_id == document_id))
+    await session.execute(delete(IngestionJob).where(IngestionJob.document_id == document_id))
     await session.execute(
         delete(Document).where(
             Document.id == document_id,
