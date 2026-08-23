@@ -28,6 +28,7 @@ from src.observability.setup import traced_observation
 from src.retrieval.embedder import embed_texts
 from src.shared.database import SessionLocal
 from src.shared.rate_limit import indexing_semaphore, pdf_parse_semaphore
+from src.shared.semantic_cache import SemanticCache
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,8 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> int:
         await session.flush()
 
     await _update_stage(session, doc, job, JobStage.done)
+    # The corpus changed → previously cached answers are stale (ADR-007).
+    await SemanticCache().invalidate_workspace(str(doc.workspace_id))
     logfire.info("ingestion.done", document_id=str(document_id), chunks=len(chunk_rows))
     return len(chunk_rows)
 

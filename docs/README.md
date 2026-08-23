@@ -51,8 +51,9 @@ before you write any code.
 | Observability | Langfuse |
 
 Full rationale for each choice lives in `docs/adr/`. Anything not in this
-table (Planner, Critic, semantic cache, memory layers, RBAC, nightly eval) is
-**Phase 2** — see `PRD.md` → Non-Goals.
+table (Planner, Critic, memory layers, RBAC, nightly eval) is
+**Phase 2** — see `PRD.md` → Non-Goals. The semantic answer cache exists
+behind `SEMANTIC_CACHE_ENABLED` (ADR-007).
 
 ## Repository Structure
 ```

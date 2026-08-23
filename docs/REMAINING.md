@@ -19,7 +19,7 @@
 
 - **MVP path:** upload → arq ingestion → Postgres + vectors → question over
   SSE (AG-UI) → Research Agent → hybrid retrieval → cited answer.
-- **Not in MVP:** Planner, Critic, semantic cache, MCP tools, full security
+- **Not in MVP:** Planner, Critic, MCP tools, full security
   zone, nightly eval, multi-agent live trajectory UI.
 - Rule from `AGENTS.md`: do not build deferred V1 features without a
   production signal and a spec under `docs/specs/`.
@@ -88,7 +88,7 @@
 | Auth (JWT / multi-user) | Partial | `auth/stub.py` single-tenant only |
 | Rate limiting | **Done** | Redis fixed-window; upload 5/min, chat 20/min per IP (`src/shared/rate_limit.py`) |
 | Input Guardrail (LLM Guard) | Deferred | PRD Non-Goals |
-| Semantic Cache Check (Redis vector) | Deferred | PRD Non-Goals |
+| Semantic Cache Check (Redis vector) | **Done** (flag-off) | ADR-007; invalidation + hit-rate metrics shipped |
 | Expanded `/health` (DB + Redis + embedding) | **Done** | `/healthz` (liveness) + `/readyz` (Redis ping + DB SELECT 1) |
 
 ### Checklist
@@ -288,7 +288,7 @@ Do not build without a metric / PRD justification (`AGENTS.md`).
 
 - [ ] **F4** Critic + reflection (requires `docs/specs/critic.md`)
 - [ ] **F5** Planner + plan cache (requires `docs/specs/planner.md`)
-- [ ] **F6** Semantic cache
+- [x] **F6** Semantic cache (ADR-007 — built behind `SEMANTIC_CACHE_ENABLED`, default off; see `docs/specs/semantic-cache.md`)
 - [ ] **F7** Working / semantic / conversation memory
 - [ ] **F8** LiteLLM multi-provider
 - [ ] **F9** Real auth + RBAC + guardrails

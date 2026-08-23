@@ -7,6 +7,7 @@ Upload returns immediately while arq processes the job in the background.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import uuid
@@ -28,6 +29,7 @@ from src.research.models import Citation
 from src.shared.database import get_session
 from src.shared.errors import NotFoundError
 from src.shared.rate_limit import check_upload_rate_limit
+from src.shared.semantic_cache import SemanticCache
 
 router = APIRouter()
 
@@ -317,3 +319,8 @@ async def delete_document(
             Document.workspace_id == workspace_id,
         )
     )
+
+    # The corpus changed → cached answers for this workspace are stale (ADR-007).
+    # Best-effort: a Redis failure must not fail the delete.
+    with contextlib.suppress(Exception):
+        await SemanticCache().invalidate_workspace(str(workspace_id))

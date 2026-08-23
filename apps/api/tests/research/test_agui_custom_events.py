@@ -54,8 +54,10 @@ async def _fake_run_agent(
     *,
     stage_callback=None,
     history=None,
+    user_id: str | None = None,
+    session_id: str | None = None,
 ) -> AgentResult:
-    del question, workspace_id, run_id, session, history
+    del question, workspace_id, run_id, session, history, user_id, session_id
     if stage_callback:
         await stage_callback(ResearchStage.SEARCHING)
         await stage_callback(ResearchStage.GENERATING)

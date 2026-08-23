@@ -36,6 +36,10 @@ class _FakePipe:
         self._ops.append(("hgetall", (key,)))
         return self
 
+    def hget(self, key: str, field: str) -> "_FakePipe":
+        self._ops.append(("hget", (key, field)))
+        return self
+
     def set(self, key: str, value: str, **kwargs: object) -> "_FakePipe":
         self._ops.append(("set", (key, value)))
         return self
@@ -48,6 +52,10 @@ class _FakePipe:
         self._ops.append(("sadd", (key, members)))
         return self
 
+    def delete(self, *keys: str) -> "_FakePipe":
+        self._ops.append(("delete", keys))
+        return self
+
     def expire(self, key: str, ttl: int) -> "_FakePipe":
         self._ops.append(("expire", (key, ttl)))
         return self
@@ -57,6 +65,8 @@ class _FakePipe:
         for op, args in self._ops:
             if op == "hgetall":
                 results.append(self._redis._entries.get(args[0], {}))
+            elif op == "hget":
+                results.append(self._redis._entries.get(args[0], {}).get(args[1]))
             elif op == "set":
                 self._redis._exact[args[0]] = args[1]
                 results.append(True)
@@ -66,6 +76,8 @@ class _FakePipe:
             elif op == "sadd":
                 self._redis._index.setdefault(args[0], set()).update(args[1])
                 results.append(1)
+            elif op == "delete":
+                results.append(await self._redis.delete(*args))
             elif op == "expire":
                 results.append(True)
         return results
@@ -78,15 +90,39 @@ class FakeRedis:
         self._entries: dict[str, dict[str, str]] = {}
         self._index: dict[str, set[str]] = {}
         self._exact: dict[str, str] = {}
+        self._metrics: dict[str, dict[str, int]] = {}
 
     async def get(self, key: str) -> str | None:
         return self._exact.get(key)
 
     async def hgetall(self, key: str) -> dict[str, str]:
+        if key.startswith("scache:m:"):
+            return {k: str(v) for k, v in self._metrics.get(key, {}).items()}
         return self._entries.get(key, {})
 
     async def smembers(self, key: str) -> set[str]:
         return set(self._index.get(key, set()))
+
+    async def delete(self, *keys: str) -> int:
+        removed = 0
+        for key in keys:
+            if self._entries.pop(key, None) is not None:
+                removed += 1
+            if self._exact.pop(key, None) is not None:
+                removed += 1
+            if self._metrics.pop(key, None) is not None:
+                removed += 1
+            if self._index.pop(key, None) is not None:
+                removed += 1
+        return removed
+
+    async def hincrby(self, key: str, field: str, amount: int = 1) -> int:
+        entry = self._metrics.setdefault(key, {})
+        entry[field] = entry.get(field, 0) + amount
+        return entry[field]
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        return True
 
     def pipeline(self) -> _FakePipe:
         return _FakePipe(self)
@@ -274,3 +310,98 @@ def _async_redis(fake: FakeRedis):
         return fake
 
     return client
+
+
+# ── Invalidation ──────────────────────────────────────────────────────────────
+
+
+async def _seed_two_entries(fake: FakeRedis, monkeypatch: pytest.MonkeyPatch) -> SemanticCache:
+    """Store two answers in ws-a and return the cache instance."""
+    monkeypatch.setattr(settings, "SEMANTIC_CACHE_ENABLED", True)
+    monkeypatch.setattr("src.shared.semantic_cache.redis_client", _async_redis(fake))
+
+    async def embed(query: str) -> list[float]:
+        vectors = {
+            "What is quantum computing?": [1.0, 0.0, 0.0],
+            "What is machine learning?": [0.0, 1.0, 0.0],
+        }
+        # Unknown queries land between both entries: cosine ≈ 0.71 < threshold.
+        return vectors.get(query, [0.5, 0.5, 0.0])
+
+    monkeypatch.setattr("src.retrieval.embedder.embed_query", embed)
+
+    cache = SemanticCache()
+    await cache.store("ws-a", "What is quantum computing?", "Answer A.", [])
+    await cache.store("ws-a", "What is machine learning?", "Answer B.", [])
+    return cache
+
+
+async def test_invalidate_workspace_evicts_all_tiers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeRedis()
+    cache = await _seed_two_entries(fake, monkeypatch)
+
+    # Both tiers resolve before invalidation.
+    assert await cache.lookup("ws-a", "What is quantum computing?") is not None
+
+    removed = await cache.invalidate_workspace("ws-a")
+    assert removed == 2
+    assert fake._index.get(_key_index("ws-a")) is None
+    assert fake._entries == {}
+    assert fake._exact == {}
+
+    # Every tier misses afterwards.
+    assert await cache.lookup("ws-a", "What is quantum computing?") is None
+
+
+async def test_invalidate_workspace_empty_index_returns_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "SEMANTIC_CACHE_ENABLED", True)
+    monkeypatch.setattr("src.shared.semantic_cache.redis_client", _async_redis(FakeRedis()))
+
+    assert await SemanticCache().invalidate_workspace("ws-empty") == 0
+
+
+async def test_invalidation_does_not_touch_other_workspaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeRedis()
+    cache = await _seed_two_entries(fake, monkeypatch)
+
+    assert await cache.invalidate_workspace("ws-b") == 0
+    hit = await cache.lookup("ws-a", "What is quantum computing?")
+    assert hit is not None
+    assert hit.answer == "Answer A."
+
+
+# ── Metrics ───────────────────────────────────────────────────────────────────
+
+
+async def test_metrics_count_hits_misses_and_stores(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeRedis()
+    cache = await _seed_two_entries(fake, monkeypatch)
+
+    await cache.lookup("ws-a", "What is quantum computing?")  # exact hit
+    await cache.lookup("ws-a", "Tell me about quantum computing")  # below threshold
+
+    stats = await cache.stats("ws-a")
+    assert stats["stores"] == 2
+    assert stats["hits_exact"] == 1
+    assert stats["misses"] >= 1
+    assert stats["lookups"] == stats["hits_exact"] + stats["hits_semantic"] + stats["misses"]
+
+
+async def test_stats_without_redis_returns_zeros(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def no_redis() -> None:
+        return None
+
+    monkeypatch.setattr("src.shared.semantic_cache.redis_client", no_redis)
+
+    stats = await SemanticCache().stats("ws-a")
+    assert stats["hits_exact"] == 0
+    assert stats["misses"] == 0
+    assert stats["lookups"] == 0

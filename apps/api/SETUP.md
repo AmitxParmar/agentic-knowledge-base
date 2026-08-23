@@ -22,6 +22,7 @@ Edit `apps/api/.env`:
 - Set `COHERE_API_KEY` + `COHERE_EMBED_MODEL` (`embed-english-v3.0`) + `COHERE_RERANK_MODEL` (`rerank-multilingual-v3.0`)
 - Set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` (required by N3 in prod)
 - Leave `LOGFIRE_TOKEN` empty for local dev — logs go to console
+- Optional: set `SEMANTIC_CACHE_ENABLED=true` to enable the semantic answer cache (ADR-007; see `docs/specs/semantic-cache.md`)
 
 ## 3. Run DB migrations
 

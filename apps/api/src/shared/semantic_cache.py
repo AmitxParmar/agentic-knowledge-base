@@ -18,8 +18,17 @@ Storage layout (Redis):
   scache:eq:{workspace_id}:{query_hash}  → STRING (entry_id)     TTL
   scache:e:{entry_id}                    → HASH (fields below)   TTL
   scache:idx:{workspace_id}              → SET of entry_ids      TTL
+  scache:m:{workspace_id}                → HASH metric counters  TTL
 
-Hash fields per entry: q, a, cites (JSON), conf, emb (binary), ts.
+Hash fields per entry: q, a, cites (JSON), conf, emb (binary), ts,
+qh (query hash — lets invalidate_workspace() find exact-match keys).
+
+Invalidation: an answer is only valid for the corpus that produced it.
+invalidate_workspace() evicts every entry for a workspace and is called
+whenever the corpus changes (document ingested or deleted).
+
+Metrics: per-workspace counters (hits_exact, hits_semantic, misses,
+stores, invalidations) for hit-rate telemetry; read via stats().
 
 Graceful degradation: every Redis operation is wrapped in try/except.
 On failure the lookup returns None (cache miss) and the caller proceeds
@@ -108,6 +117,10 @@ def _key_index(workspace_id: str) -> str:
     return f"scache:idx:{workspace_id}"
 
 
+def _key_metrics(workspace_id: str) -> str:
+    return f"scache:m:{workspace_id}"
+
+
 # ── Semantic cache ─────────────────────────────────────────────────────────────
 
 
@@ -129,6 +142,16 @@ class SemanticCache:
         self._enabled = settings.SEMANTIC_CACHE_ENABLED
         self._ttl = settings.SEMANTIC_CACHE_TTL
         self._threshold = settings.SEMANTIC_CACHE_THRESHOLD
+        # Counters outlive entries so hit rate spans several entry generations.
+        self._metrics_ttl = max(self._ttl, 86400)
+
+    async def _bump_metric(self, r: Any, ws: str, field: str) -> None:
+        """Increment a workspace metric counter. Best-effort; never raises."""
+        try:
+            await r.hincrby(_key_metrics(ws), field, 1)
+            await r.expire(_key_metrics(ws), self._metrics_ttl)
+        except Exception:
+            pass
 
     async def lookup(
         self,
@@ -157,6 +180,7 @@ class SemanticCache:
                 if entry_id:
                     entry = await r.hgetall(_key_entry(entry_id))
                     if entry and entry.get("a"):
+                        await self._bump_metric(r, ws, "hits_exact")
                         logfire.info("semantic_cache.hit", tier="exact", entry_id=entry_id)
                         return CacheHit(
                             answer=entry["a"],
@@ -176,6 +200,7 @@ class SemanticCache:
 
                 entry_ids = list(await r.smembers(_key_index(ws)))
                 if not entry_ids:
+                    await self._bump_metric(r, ws, "misses")
                     return None
 
                 # Batch-fetch all entries in a pipeline for efficiency.
@@ -204,6 +229,7 @@ class SemanticCache:
                         continue
 
                 if best_sim >= self._threshold and best_entry and best_eid:
+                    await self._bump_metric(r, ws, "hits_semantic")
                     logfire.info(
                         "semantic_cache.hit",
                         tier="semantic",
@@ -222,6 +248,7 @@ class SemanticCache:
                         entry_id=best_eid,
                     )
 
+                await self._bump_metric(r, ws, "misses")
                 logfire.info("semantic_cache.miss", best_similarity=round(best_sim, 4))
                 return None
 
@@ -270,7 +297,8 @@ class SemanticCache:
                 # Exact-match index: normalized hash → entry_id
                 pipe.set(_key_exact(ws, qhash), entry_id, ex=self._ttl)
 
-                # Entry data
+                # Entry data (qh lets invalidate_workspace() find the
+                # exact-match key without a keyspace scan)
                 pipe.hset(
                     _key_entry(entry_id),
                     mapping={
@@ -281,6 +309,7 @@ class SemanticCache:
                         "emb": _pack_embedding(query_embedding).decode("latin-1"),
                         "ts": now,
                         "ws": ws,
+                        "qh": qhash,
                     },
                 )
                 pipe.expire(_key_entry(entry_id), self._ttl)
@@ -290,7 +319,71 @@ class SemanticCache:
                 pipe.expire(_key_index(ws), self._ttl)
 
                 await pipe.execute()
+                await self._bump_metric(r, ws, "stores")
                 logfire.info("semantic_cache.stored", entry_id=entry_id)
 
             except Exception:
                 logger.debug("semantic_cache: store failed", exc_info=True)
+
+    async def invalidate_workspace(self, workspace_id: str) -> int:
+        """Evict every cached answer for a workspace.
+
+        Called whenever the document corpus changes (a document finishes
+        ingesting or is deleted): an answer is only valid for the corpus
+        that produced it. Runs regardless of the feature flag so entries
+        written before a flag flip can never outlive their corpus.
+
+        Returns the number of evicted entries. Never raises.
+        """
+        r = await redis_client()
+        if not r:
+            return 0
+
+        ws = str(workspace_id)
+
+        with logfire.span("semantic_cache.invalidate", workspace_id=ws):
+            try:
+                entry_ids = list(await r.smembers(_key_index(ws)))
+                if not entry_ids:
+                    return 0
+
+                # Exact-match keys are derived from each entry's stored query
+                # hash ("qh") — no keyspace scan needed.
+                pipe = r.pipeline()
+                for eid in entry_ids:
+                    pipe.hget(_key_entry(eid), "qh")
+                qhashes = await pipe.execute()
+
+                pipe = r.pipeline()
+                for eid, qh in zip(entry_ids, qhashes, strict=True):
+                    pipe.delete(_key_entry(eid))
+                    if qh:
+                        pipe.delete(_key_exact(ws, qh))
+                pipe.delete(_key_index(ws))
+                await pipe.execute()
+
+                await self._bump_metric(r, ws, "invalidations")
+                logfire.info(
+                    "semantic_cache.invalidated", workspace_id=ws, entries=len(entry_ids)
+                )
+                return len(entry_ids)
+            except Exception:
+                logger.debug("semantic_cache: invalidation failed", exc_info=True)
+                return 0
+
+    async def stats(self, workspace_id: str) -> dict[str, int]:
+        """Return best-effort hit-rate counters for a workspace."""
+        fields = ("hits_exact", "hits_semantic", "misses", "stores", "invalidations")
+        empty: dict[str, int] = {f: 0 for f in fields}
+        empty["lookups"] = 0
+        r = await redis_client()
+        if not r:
+            return empty
+        try:
+            raw = await r.hgetall(_key_metrics(str(workspace_id)))
+            counts = {f: int(raw.get(f, 0)) for f in fields}
+            counts["lookups"] = counts["hits_exact"] + counts["hits_semantic"] + counts["misses"]
+            return counts
+        except Exception:
+            logger.debug("semantic_cache: stats failed", exc_info=True)
+            return empty

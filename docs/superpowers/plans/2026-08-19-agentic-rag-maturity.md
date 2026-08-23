@@ -22,7 +22,7 @@
 
 - **Auth is a stub** (`src/auth/stub.py`) — `get_user_id`/`get_workspace_id` are placeholders. Single-tenant reality.
 - **One agent, one tool.** ReAct loop with retrieval only. No Planner/Critic/MCP (deliberately deferred, but that's the whole thesis of the V1→V2 story).
-- **Semantic cache is feature-flagged off** and has no document-change invalidation, no hit-rate metrics, question-keyed only (ignores multi-turn context).
+- **Semantic cache is feature-flagged off.** Document-change invalidation and hit-rate metrics are now implemented (ADR-007 amended); still question-keyed only — multi-turn context ignored, recovered by threshold + TTL + invalidation.
 - **No evaluation system at all** — no golden set, no offline metrics, no regression gate.
 - **No RBAC/scoped retrieval, no guardrails, no prompt-injection defenses** — retrieval is workspace-scoped only because there's one tenant.
 - **Tests exist but are thin** — no coverage for most agent paths; the pipeline's real behavior (rerank effectiveness, citation correctness) has no regression harness.
@@ -60,7 +60,7 @@ ReAct + RAG     composed      planner/critic SaaS-ready
                 graph         + memory
 ```
 
-**V2 — "Composed pipeline" (weeks 1–6).** Turn the monolith loop into a **LangGraph pipeline with nodes, not agents**: `plan → retrieve → verify → synthesize`, all sharing one model budget, where "plan/critic" are **LangGraph nodes with cheap models**, not new agents. Add evaluation infrastructure (golden set + offline metrics) *in parallel* — you cannot tune V3 without it. Add document-change invalidation to the semantic cache and turn it on. Add real auth (at least JWT + workspace membership).
+**V2 — "Composed pipeline" (weeks 1–6).** Turn the monolith loop into a **LangGraph pipeline with nodes, not agents**: `plan → retrieve → verify → synthesize`, all sharing one model budget, where "plan/critic" are **LangGraph nodes with cheap models**, not new agents. Add evaluation infrastructure (golden set + offline metrics) *in parallel* — you cannot tune V3 without it. Flip the semantic cache on (document-change invalidation + hit-rate metrics already shipped, ADR-007 amended). Add real auth (at least JWT + workspace membership).
 
 - *Why:* nodes are deterministic, testable, cheaper than agents; eval must exist before agents multiply.
 - *Don't add yet:* multi-agent debate, memory layers, tool gateway.
@@ -195,7 +195,7 @@ Cross-cutting: **tool registry with schemas** (Pydantic), per-tool **timeout + r
 
 | Technique | Impact | Effort | Status |
 |---|---|---|---|
-| Semantic cache (question-level) | ★★★★★ | M | **Built, flag-off (ADR-007)** → enable + invalidation |
+| Semantic cache (question-level) | ★★★★★ | M | **Complete (ADR-007)**: invalidation + metrics done; flag-off → enable when ready |
 | Retrieval cache (query→chunks) | ★★★★ | S | Not present — TTL'd Redis cache on retrieval results |
 | Embedding cache (text→vector) | ★★★★ | S | Not present — LRU in-process |
 | Prompt/context caching | ★★★ | M | Only where provider supports cache keys |
@@ -284,7 +284,7 @@ Frontend stays feature-first (`features/research/...` already good); add `featur
 
 ## 15. Prioritized roadmap
 
-**Must have (V2, weeks 1–6):** composed LangGraph nodes (plan/verify/synthesize); eval harness + golden set + CI gate; retrieval caching + embedding cache; context selection/compression; real auth (JWT+workspace); semantic cache enablement + document invalidation; token/time/cost budgets.
+**Must have (V2, weeks 1–6):** composed LangGraph nodes (plan/verify/synthesize); eval harness + golden set + CI gate; retrieval caching + embedding cache; context selection/compression; real auth (JWT+workspace); semantic cache enablement (invalidation + metrics already shipped); token/time/cost budgets.
 
 **Should have (V3, weeks 7–10):** multi-query decomposition; parent-child retrieval; metadata pre-filtering; session summarization memory; tool gateway with web+fetch (with SSRF/rate limits); critic node on retry path; prompt-injection defenses + leak tests.
 
@@ -323,7 +323,7 @@ Question
 | 3 | Refactor agent → composed graph (plan/research/synth nodes) |
 | 4 | Budgets (token/time/cost) + retrieval caching + embedding cache |
 | 5 | Context selection/compression + parent-child retrieval |
-| 6 | Real auth (JWT + workspace) + leak tests; semantic cache enable + invalidation |
+| 6 | Real auth (JWT + workspace) + leak tests; flip semantic cache on (invalidation + metrics shipped) |
 | 7–8 | Multi-query + metadata filters; session memory summarizer |
 | 9 | Tool gateway (web + fetch, SSRF, per-tool limits); HITL interrupt |
 | 10 | Critic/verifier node + ungrounded-metric CI gate; prompt-injection defenses |

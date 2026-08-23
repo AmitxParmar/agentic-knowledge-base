@@ -415,6 +415,14 @@ async def research_chat(
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+@router.get("/cache/stats")
+async def cache_stats(
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+) -> dict[str, int]:
+    """Semantic-cache hit-rate counters for the workspace (ADR-007)."""
+    return await SemanticCache().stats(str(workspace_id))
+
+
 class RunSummary(BaseModel):
     run_id: str
     question: str
