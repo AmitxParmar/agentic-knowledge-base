@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import logging
 import struct
+from time import monotonic
 from typing import Any
 
 import logfire
@@ -256,3 +257,41 @@ async def _cosine_fallback(query: str, passages: list[str]) -> list[float]:
     embeddings = await embed_texts([query, *passages], input_type="search_query")
     query_emb, passage_embs = embeddings[0], embeddings[1:]
     return [_cosine_similarity(query_emb, emb) for emb in passage_embs]
+
+
+# ── Readiness probe ──────────────────────────────────────────────────────────
+
+_HEALTH_TTL_SECONDS = 60.0
+_PROBE_TIMEOUT_SECONDS = 5.0
+_health_cache: tuple[float, str] | None = None
+
+
+async def health_check() -> str:
+    """Cheap readiness probe for the embedding dependency.
+
+    Returns "ok", "skipped (dev fallback)", "unconfigured", or
+    "error: <ExcName>". A successful result is cached for 60s so frequent
+    readiness probes don't burn Cohere quota; failures are re-probed each
+    call so recovery is detected on the next probe.
+    """
+    global _health_cache
+
+    if not settings.COHERE_API_KEY:
+        if settings.ALLOW_EMBEDDING_FALLBACK:
+            return "skipped (dev fallback)"
+        return "unconfigured"
+
+    now = monotonic()
+    if _health_cache is not None:
+        cached_at, cached_status = _health_cache
+        if cached_status == "ok" and now - cached_at < _HEALTH_TTL_SECONDS:
+            return cached_status
+
+    status = "ok"
+    try:
+        await asyncio.wait_for(embed_query("healthcheck"), timeout=_PROBE_TIMEOUT_SECONDS)
+    except Exception as exc:
+        status = f"error: {type(exc).__name__}"
+        logger.warning("embedder.health_check failed: %s", exc)
+    _health_cache = (now, status)
+    return status

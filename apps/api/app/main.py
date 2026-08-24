@@ -153,6 +153,18 @@ def create_app() -> FastAPI:
             checks["db"] = f"error: {type(exc).__name__}"
             ok = False
 
+        # Embedding dependency (Cohere) — cached probe, see embedder.health_check
+        try:
+            from src.retrieval.embedder import health_check
+
+            status = await asyncio.wait_for(health_check(), timeout=7)
+            checks["embeddings"] = status
+            if status not in ("ok", "skipped (dev fallback)"):
+                ok = False
+        except Exception as exc:
+            checks["embeddings"] = f"error: {type(exc).__name__}"
+            ok = False
+
         status_code = 200 if ok else 503
         from fastapi.responses import JSONResponse
         return JSONResponse(

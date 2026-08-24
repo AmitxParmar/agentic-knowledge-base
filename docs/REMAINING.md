@@ -89,12 +89,12 @@
 | Rate limiting | **Done** | Redis fixed-window; upload 5/min, chat 20/min per IP (`src/shared/rate_limit.py`) |
 | Input Guardrail (LLM Guard) | Deferred | PRD Non-Goals |
 | Semantic Cache Check (Redis vector) | **Done** (flag-off) | ADR-007; invalidation + hit-rate metrics shipped |
-| Expanded `/health` (DB + Redis + embedding) | **Done** | `/healthz` (liveness) + `/readyz` (Redis ping + DB SELECT 1) |
+| Expanded `/health` (DB + Redis + embedding) | **Done** | `/healthz` (liveness) + `/readyz` (Redis ping + DB SELECT 1 + cached Cohere probe via `embedder.health_check()`) |
 
 ### Checklist
 
 - [ ] Confirm migrations applied on Neon and seed user/workspace
-- [ ] Health checks for dependencies
+- [x] Health checks for dependencies — Redis, DB, Cohere embeddings (60s-cached probe; dev-fallback aware)
 - [ ] Tighten CORS / remove `/test-llm` for prod
 
 ---
