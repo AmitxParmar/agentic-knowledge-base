@@ -1,33 +1,71 @@
 """
-auth/stub.py
-------------
-Purpose:    MVP single-tenant auth stub.
-            Returns a hardcoded workspace_id so the rest of the system can
-            use workspace scoping without real auth being in place (PRD Non-Goal).
-Scope:      FastAPI dependency only. Replace get_workspace_id() when RBAC is added.
+auth/stub.py -> auth dependency resolution (mode-aware, ADR-008)
+----------------------------------------------------------------
+Purpose:    FastAPI dependencies resolving (user_id, workspace_id).
+            AUTH_MODE=stub: dev defaults with X-Workspace-Id override
+            (single-tenant MVP behavior - unchanged for local runs).
+            AUTH_MODE=jwt: Bearer tokens verified via src/auth/jwt.py;
+            failures fail closed with 401.
+Scope:      Dependency wiring only. Token minting lives in jwt.py +
+            scripts/mint_token.py; no roles/RBAC yet.
 
-ponytail: one function, one comment — don't build more than the seam.
+The historical module name is kept so every router import
+(`from src.auth.stub import get_workspace_id`) stays valid.
 """
+
+from __future__ import annotations
 
 import uuid
 
-from fastapi import Header
+from fastapi import Header, HTTPException
+from fastapi.security.utils import get_authorization_scheme_param
 
-# ponytail: hardcoded dev workspace — replace with JWT decode when RBAC ships
+from app.settings import settings
+from src.auth.jwt import AuthError, decode_token
+
+# Dev defaults - the seeded single-tenant workspace/user.
 _DEV_WORKSPACE_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 _DEV_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
 
 
-async def get_workspace_id(x_workspace_id: str | None = Header(default=None)) -> uuid.UUID:
-    """
-    FastAPI dependency. Returns workspace_id from header if present, else dev default.
-    When RBAC is added: validate JWT here, extract workspace from claims.
-    """
+def _unauthorized() -> HTTPException:
+    # Generic by design: never reveal whether the token was expired,
+    # malformed, or signed with the wrong key.
+    return HTTPException(status_code=401, detail="Authentication required.")
+
+
+async def get_workspace_id(
+    x_workspace_id: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> uuid.UUID:
+    """Resolve the caller's workspace from the request."""
+    if settings.AUTH_MODE == "jwt":
+        # Header override is ignored in jwt mode - the token is the source.
+        del x_workspace_id
+        _, workspace_id = await _authenticate(authorization)
+        return workspace_id
+
     if x_workspace_id:
-        return uuid.UUID(x_workspace_id)
+        try:
+            return uuid.UUID(x_workspace_id)
+        except ValueError:
+            raise _unauthorized() from None
     return _DEV_WORKSPACE_ID
 
 
-async def get_user_id() -> uuid.UUID:
-    """Stub user resolver — always returns the dev user for MVP."""
+async def get_user_id(authorization: str | None = Header(default=None)) -> uuid.UUID:
+    """Resolve the caller's user id from the request."""
+    if settings.AUTH_MODE == "jwt":
+        user_id, _ = await _authenticate(authorization)
+        return user_id
     return _DEV_USER_ID
+
+
+async def _authenticate(authorization: str | None) -> tuple[uuid.UUID, uuid.UUID]:
+    scheme, token = get_authorization_scheme_param(authorization or "")
+    if scheme.lower() != "bearer" or not token:
+        raise _unauthorized()
+    try:
+        return decode_token(token)
+    except AuthError:
+        raise _unauthorized() from None

@@ -51,9 +51,11 @@ before you write any code.
 | Observability | Langfuse |
 
 Full rationale for each choice lives in `docs/adr/`. Anything not in this
-table (Planner, Critic, memory layers, RBAC, nightly eval) is
-**Phase 2** — see `PRD.md` → Non-Goals. The semantic answer cache exists
-behind `SEMANTIC_CACHE_ENABLED` (ADR-007).
+table (Critic, memory layers, RBAC roles) is **Phase 2** - see
+`PRD.md` -> Non-Goals. Shipped since the MVP freeze: the semantic answer
+cache (ADR-007, default on), JWT auth (ADR-008, `AUTH_MODE=jwt`),
+the composed research pipeline (`docs/specs/research-pipeline.md`), and
+the offline eval harness (`docs/specs/evaluation.md`).
 
 ## Repository Structure
 ```

@@ -56,9 +56,9 @@ The MVP is successful if all four hold up reliably under normal use.
 
 | Deferred | Why |
 |---|---|
-| Planner Agent | Single-question MVP doesn't need multi-hop task decomposition yet |
+| Planner Agent | ~~Single-question MVP doesn't need multi-hop task decomposition yet~~ — **partially implemented** as a LangGraph *node* (not an agent): `docs/specs/research-pipeline.md`; eval harness provides the measurement baseline |
 | Critic Agent / reflection loop | Add once we can measure how often the Researcher actually needs it |
-| Plan Cache | Has nothing to reuse until the Planner exists |
+| Plan Cache | Has nothing to reuse until plans repeat across runs |
 | Semantic Cache (Redis) | ~~Optimization; premature before usage volume exists~~ — **implemented** as ADR-007, feature-flagged off by default |
 | Working Memory / Semantic Memory / Conversation Summaries | Multi-session memory isn't required for a single ask-and-answer loop |
 | MCP Tool Layer (web search, GitHub, filesystem tools) | Research Agent's MVP tool is retrieval-over-uploads only |

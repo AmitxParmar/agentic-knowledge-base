@@ -1,7 +1,14 @@
 """
 research/agent.py
 -----------------
-Single-agent MVP research loop with LangGraph.
+Composed research pipeline (docs/specs/research-pipeline.md):
+
+    entry → planner → researcher ⇄ (ReAct loop) → synthesize → END
+
+- planner:    cheap-model query decomposition; never fails a run.
+- researcher: ReAct loop over the retrieval tool (spec: researcher.md).
+- synthesize: owns final-answer generation (pass-through or forced
+              best-effort at the iteration cap).
 """
 
 from __future__ import annotations
@@ -25,7 +32,7 @@ from src.observability.setup import agent_run_trace
 from src.research.checkpoint import get_saver
 from src.research.models import Citation
 from src.retrieval.pipeline import RetrievedChunk, retrieve
-from src.shared.model_gateway import complete_with_tools
+from src.shared.model_gateway import complete, complete_with_tools
 from src.shared.progress import ResearchStage
 
 logger = logging.getLogger(__name__)
@@ -50,6 +57,7 @@ class AgentState(TypedDict):
     run_id: str
     workspace_id: str
     question: str
+    plan: list[str]
     messages: list[dict[str, Any]]
     citations: list[dict[str, Any]]
     answer: str | None
@@ -86,36 +94,80 @@ Rules:
 - When you have enough evidence, answer directly without calling the tool again.
 """
 
+_PLANNER_MAX_ASPECTS = 3
+
+_PLANNER_PROMPT = """\
+Decompose the user's question into 1-3 independent document-search queries. \
+Each query targets one specific aspect that together fully cover the question. \
+Respond with ONLY a JSON array of query strings — no other text. \
+If the question is simple and single-faceted, return an array with one query."""
+
+
+def _parse_plan(content: str | None) -> list[str]:
+    """Parse the planner's JSON array output, tolerantly.
+
+    Accepts plain or code-fenced arrays, caps at _PLANNER_MAX_ASPECTS,
+    and drops empty/non-string entries. Returns [] on anything unparseable.
+    """
+    if not content:
+        return []
+    start = content.find("[")
+    end = content.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        return []
+    try:
+        raw = json.loads(content[start : end + 1])
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(raw, list):
+        return []
+    queries = [q.strip() for q in raw if isinstance(q, str) and q.strip()]
+    return queries[:_PLANNER_MAX_ASPECTS]
+
+
+async def _planner_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """Pre-node: decompose the question into search aspects.
+
+    Best-effort by design (spec invariant): any provider error, timeout,
+    or malformed output falls back to a single-step plan equal to the raw
+    question, so planning can never break a run. Emits no progress stage —
+    the fixed ux.md vocabulary is untouched; SEARCHING still fires on
+    first retrieval inside the researcher node.
+    """
+    del config
+    fallback = [state["question"]]
+    try:
+        response = await asyncio.wait_for(
+            complete(
+                [
+                    {"role": "system", "content": _PLANNER_PROMPT},
+                    {"role": "user", "content": state["question"]},
+                ],
+                temperature=0.0,
+                max_tokens=200,
+            ),
+            timeout=settings.AGENT_ITERATION_TIMEOUT,
+        )
+        plan = _parse_plan(response)
+    except Exception:
+        logger.debug("research.planner failed — single-step fallback", exc_info=True)
+        plan = []
+
+    if not plan:
+        plan = fallback
+
+    logfire.info("research.plan", run_id=state["run_id"], aspects=len(plan))
+    plan_message = {
+        "role": "system",
+        "content": "Search plan (cover these aspects):\n" + "\n".join(f"- {q}" for q in plan),
+    }
+    return {"plan": plan, "messages": state["messages"] + [plan_message]}
+
 
 async def _researcher_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     configurable = config.get("configurable") or {}
     session: AsyncSession = configurable["_session"]
     callback = configurable.get("_stage_callback")
-
-    if state["iterations"] >= MAX_ITERATIONS:
-        final_msg = await asyncio.wait_for(
-            complete_with_tools(
-                state["messages"]
-                + [
-                    {
-                        "role": "user",
-                        "content": (
-                            "You have reached the maximum number of searches. "
-                            "Write the best answer you can from the gathered evidence. "
-                            "If evidence is insufficient, say so."
-                        ),
-                    }
-                ],
-                tools=None,
-                max_tokens=2048,
-            ),
-            timeout=settings.AGENT_ITERATION_TIMEOUT,
-        )
-        return {
-            "answer": final_msg.content or "Insufficient evidence to answer.",
-            "messages": state["messages"],
-            "tokens_used": state["tokens_used"] + _msg_tokens(final_msg),
-        }
 
     response = await asyncio.wait_for(
         complete_with_tools(
@@ -130,7 +182,8 @@ async def _researcher_node(state: AgentState, config: RunnableConfig) -> dict[st
     if not response.tool_calls:
         return {
             "answer": response.content or "",
-            "messages": state["messages"] + [{"role": "assistant", "content": response.content or ""}],
+            "messages": state["messages"]
+            + [{"role": "assistant", "content": response.content or ""}],
             "tokens_used": state["tokens_used"] + _msg_tokens(response),
         }
 
@@ -181,11 +234,54 @@ async def _researcher_node(state: AgentState, config: RunnableConfig) -> dict[st
 
     return {
         "messages": state["messages"]
-        + [{"role": "assistant", "content": response.content or "", "tool_calls": assistant_tool_calls}]
+        + [
+            {
+                "role": "assistant",
+                "content": response.content or "",
+                "tool_calls": assistant_tool_calls,
+            }
+        ]
         + tool_results,
         "citations": state["citations"] + new_citations,
         "iterations": state["iterations"] + 1,
         "tokens_used": state["tokens_used"] + _msg_tokens(response),
+    }
+
+
+async def _synthesize_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """Final-answer node: pass-through, or forced best-effort generation.
+
+    The researcher normally writes the answer itself when it stops calling
+    tools. When instead the iteration cap exhausted the loop with no answer,
+    this node makes exactly one grounded generation call (no tools) from
+    whatever evidence was gathered — same prompt the inline path used.
+    """
+    del config
+    if state.get("answer") is not None:
+        return {}
+
+    final_msg = await asyncio.wait_for(
+        complete_with_tools(
+            state["messages"]
+            + [
+                {
+                    "role": "user",
+                    "content": (
+                        "You have reached the maximum number of searches. "
+                        "Write the best answer you can from the gathered evidence. "
+                        "If evidence is insufficient, say so."
+                    ),
+                }
+            ],
+            tools=None,
+            max_tokens=2048,
+        ),
+        timeout=settings.AGENT_ITERATION_TIMEOUT,
+    )
+    return {
+        "answer": final_msg.content or "Insufficient evidence to answer.",
+        "messages": state["messages"],
+        "tokens_used": state["tokens_used"] + _msg_tokens(final_msg),
     }
 
 
@@ -194,19 +290,37 @@ def _msg_tokens(response: Any) -> int:
     return getattr(usage, "total_tokens", 0) or 0
 
 
-def _should_continue(state: AgentState) -> str:
+def _route_after_research(state: AgentState) -> str:
+    """Route to synthesize once an answer exists, iterations are spent, or
+    the run's token budget is exhausted (maturity plan §7: hard cost caps)."""
     if state.get("answer") is not None:
-        return END
+        return "synthesize"
     if state["iterations"] >= MAX_ITERATIONS:
-        return END
+        return "synthesize"
+    if state["tokens_used"] >= settings.AGENT_TOKEN_BUDGET:
+        logfire.info(
+            "research.token_budget_exceeded",
+            run_id=state["run_id"],
+            tokens_used=state["tokens_used"],
+            budget=settings.AGENT_TOKEN_BUDGET,
+        )
+        return "synthesize"
     return "researcher"
 
 
 def _build_graph(checkpointer: Any = None) -> Any:
     builder = StateGraph(AgentState)
+    builder.add_node("planner", _planner_node)
     builder.add_node("researcher", _researcher_node)
-    builder.set_entry_point("researcher")
-    builder.add_conditional_edges("researcher", _should_continue, {"researcher": "researcher", END: END})
+    builder.add_node("synthesize", _synthesize_node)
+    builder.set_entry_point("planner")
+    builder.add_edge("planner", "researcher")
+    builder.add_conditional_edges(
+        "researcher",
+        _route_after_research,
+        {"researcher": "researcher", "synthesize": "synthesize"},
+    )
+    builder.add_edge("synthesize", END)
     return builder.compile(checkpointer=checkpointer)
 
 
@@ -288,6 +402,7 @@ async def run_agent(
         "run_id": str(run_id),
         "workspace_id": str(workspace_id),
         "question": question,
+        "plan": [],
         "messages": messages,
         "citations": [],
         "answer": None,
@@ -329,7 +444,10 @@ async def run_agent(
         if confidence == "insufficient" and not citations:
             answer = _INSUFFICIENT_EVIDENCE_RESPONSE
         else:
-            answer = final_state.get("answer") or "I was unable to find sufficient evidence to answer this question."
+            answer = (
+                final_state.get("answer")
+                or "I was unable to find sufficient evidence to answer this question."
+            )
 
         iterations = final_state.get("iterations", 0)
         tokens_used = final_state.get("tokens_used", 0)
@@ -423,18 +541,23 @@ def _pack_chunks_for_model(chunks: list[RetrievedChunk]) -> str:
     remaining = _CONTEXT_TOKEN_BUDGET
 
     for index, chunk in enumerate(chunks, start=1):
-        block = f"[{index}] Source: {chunk.source_ref}\n{chunk.chunk_text}"
+        body = chunk.chunk_text
+        # Parent-context expansion (retrieval.md): sibling text rides inside
+        # the SAME [n] block so citations stay 1:1 with the citations list.
+        if getattr(chunk, "context_text", ""):
+            body = f"{body}\n\nContext from the same source:\n{chunk.context_text}"
+        block = f"[{index}] Source: {chunk.source_ref}\n{body}"
         cost = _estimate_tokens(block)
         if cost <= remaining:
             packed.append(block)
             remaining -= cost
             continue
-        # Partial fit: truncate the chunk text to use the remaining budget.
+        # Partial fit: truncate the block to use the remaining budget.
         prefix = f"[{index}] Source: {chunk.source_ref}\n"
         room = remaining - _estimate_tokens(prefix) - _estimate_tokens("...")
         if room > _CHARS_PER_TOKEN * 4:
             keep_chars = room * _CHARS_PER_TOKEN
-            packed.append(f"{prefix}{chunk.chunk_text[:keep_chars]}...")
+            packed.append(f"{prefix}{body[:keep_chars]}...")
         break
 
     return "\n\n".join(packed) if packed else "No relevant documents found for this query."

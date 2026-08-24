@@ -19,6 +19,7 @@ from src.observability.setup import traced_observation
 from src.retrieval.embedder import embed_query, rerank
 from src.retrieval.vector_index import VectorSearchResult, vector_search
 from src.shared.model_gateway import ModelGatewayError, complete
+from src.shared.retrieval_cache import get_cached_chunks, store_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,10 @@ class RetrievedChunk:
     source_ref: str
     relevance_score: float
     position: int = 0
+    # Surrounding sibling text (adjacent positions, same document), attached
+    # post-selection so fragment hits still carry their full local context.
+    # Rides inside the SAME citation block when packed - never cited separately.
+    context_text: str = ""
 
 
 async def retrieve(
@@ -62,15 +67,11 @@ async def retrieve(
             ) as observation,
             logfire.span("retrieval.pipeline", workspace_id=str(workspace_id)),
         ):
-            expanded = await _hyde_expand(question)
-            candidates = await _hybrid_search(expanded, workspace_id, session, pool=_CANDIDATE_POOL)
+            candidates, selected = await retrieve_with_ablation(
+                question, workspace_id, session, top_k=top_k
+            )
             if not candidates:
                 logfire.info("retrieval.no_candidates", workspace_id=str(workspace_id))
-                observation.update(output={"chunks": 0})
-                return []
-
-            ranked = await _rerank_candidates(question, candidates)
-            selected = _dedup_and_select(ranked, top_k)
             observation.update(
                 output={"chunks": len(selected)},
                 metadata={
@@ -86,6 +87,57 @@ async def retrieve(
         if isinstance(exc, ModelGatewayError):
             raise
         raise RetrievalError(f"Retrieval pipeline failed: {exc}") from exc
+
+
+async def retrieve_with_ablation(
+    question: str,
+    workspace_id: uuid.UUID,
+    session: AsyncSession,
+    *,
+    pool: int = _CANDIDATE_POOL,
+    top_k: int = _TOP_K_FINAL,
+) -> tuple[list[RetrievedChunk], list[RetrievedChunk]]:
+    """Run the pipeline and return both ranking stages for offline evaluation.
+
+    Returns ``(fusion_candidates, final_selection)``: the fusion-ordered
+    candidate pool *before* reranking (RRF order) and the post-rerank,
+    deduplicated final selection. The eval harness computes ΔNDCG between
+    the two orders to verify the reranker actually improves relevance.
+
+    A retrieval-cache hit returns the cached selection as both stages
+    (the original fusion order is not cached — ΔNDCG for cached cases
+    reads as 0, which is neutral for rerank verification).
+    """
+    cached = await get_cached_chunks(str(workspace_id), question)
+    if cached is not None:
+        chunks = [RetrievedChunk(**c) for c in cached]
+        return chunks, chunks
+
+    expanded = await _hyde_expand(question)
+    candidates = await _hybrid_search(expanded, workspace_id, session, pool=pool)
+    if not candidates:
+        return [], []
+
+    ranked = await _rerank_candidates(question, candidates)
+    selected = _dedup_and_select(ranked, top_k)
+    await _attach_parent_context(selected, session)
+    await store_chunks(
+        str(workspace_id),
+        question,
+        [
+            {
+                "chunk_id": c.chunk_id,
+                "document_id": c.document_id,
+                "chunk_text": c.chunk_text,
+                "source_ref": c.source_ref,
+                "relevance_score": c.relevance_score,
+                "position": c.position,
+                "context_text": c.context_text,
+            }
+            for c in selected
+        ],
+    )
+    return candidates, selected
 
 
 async def _hyde_expand(question: str) -> str:
@@ -212,6 +264,103 @@ async def _hydrate_chunks(turbovec_ids: list[str], session: AsyncSession) -> lis
 def _build_source_ref(doc: Document, chunk: Chunk) -> str:
     page = chunk.chunk_metadata.get("page") or chunk.position
     return f"{doc.filename}, chunk {page}"
+
+
+# ── Parent-context expansion (spec: retrieval.md - parent-child section) ─────
+
+# Max chars of sibling context merged into one chunk's citation block.
+# Sentence-bounded truncation keeps the merge extractive, not arbitrary.
+_CONTEXT_MAX_CHARS = 1200
+# Neighbors at position +/- this distance count as local context.
+_CONTEXT_NEIGHBOR_RADIUS = 1
+
+
+async def _attach_parent_context(
+    selected: list[RetrievedChunk], session: AsyncSession
+) -> None:
+    """Merge adjacent-sibling text into each selected chunk (in place).
+
+    A rerank hit is often a fragment of its section. Pulling the chunk's
+    immediate neighbors (same document, adjacent positions) gives the model
+    the full local argument without adding new citations - the context rides
+    inside the same [n] block, preserving the citation-at-retrieval contract.
+    Best-effort: any DB failure leaves chunks unchanged.
+    """
+    if not selected:
+        return
+    try:
+        doc_ids = {uuid.UUID(c.document_id) for c in selected}
+        positions_by_doc: dict[uuid.UUID, set[int]] = {}
+        result = await session.execute(
+            select(Chunk.document_id, Chunk.position).where(Chunk.document_id.in_(doc_ids))
+        )
+        for doc_id, pos in result.all():
+            positions_by_doc.setdefault(doc_id, set()).add(pos)
+
+        wanted_positions: set[int] = {
+            pos
+            for chunk in selected
+            for offset in range(-_CONTEXT_NEIGHBOR_RADIUS, _CONTEXT_NEIGHBOR_RADIUS + 1)
+            for pos in [chunk.position + offset]
+            if pos in positions_by_doc.get(uuid.UUID(chunk.document_id), set())
+        }
+        if not wanted_positions:
+            return
+
+        rows = await session.execute(
+            select(Chunk)
+            .where(
+                Chunk.document_id.in_(doc_ids),
+                Chunk.position.in_(wanted_positions),
+            )
+            .order_by(Chunk.document_id, Chunk.position)
+        )
+        siblings: dict[tuple[uuid.UUID, int], str] = {
+            (row.document_id, row.position): row.text for row in rows.all()
+        }
+
+        for chunk in selected:
+            doc_id = uuid.UUID(chunk.document_id)
+            parts: list[str] = []
+            total = 0
+            for offset in range(-_CONTEXT_NEIGHBOR_RADIUS, _CONTEXT_NEIGHBOR_RADIUS + 1):
+                if offset == 0:
+                    continue  # the hit's own text is already packed separately
+                text = siblings.get((doc_id, chunk.position + offset))
+                if text is None:
+                    continue
+                truncated = _truncate_at_sentence_boundary(
+                    text, remaining=_CONTEXT_MAX_CHARS - total
+                )
+                if not truncated:
+                    continue
+                parts.append(truncated)
+                total += len(truncated) + len("\n...\n")
+            context = "\n...\n".join(parts)
+            # Don't duplicate what the hit itself already says: only attach
+            # context when it adds material beyond the chunk's own text.
+            normalized_own = " ".join(chunk.chunk_text.split()).lower()
+            normalized_ctx = " ".join(context.split()).lower()
+            if context and normalized_ctx not in normalized_own and not chunk.context_text:
+                chunk.context_text = context
+    except Exception:
+        logger.debug("retrieval: parent-context expansion skipped", exc_info=True)
+
+
+def _truncate_at_sentence_boundary(text: str, *, remaining: int) -> str:
+    """Cut ``text`` to at most ``remaining`` chars, ending on a sentence end."""
+    if remaining <= 0:
+        return ""
+    if len(text) <= remaining:
+        return text.strip()
+    window = text[:remaining]
+    for punct in (". ", "! ", "? "):
+        cut = window.rfind(punct)
+        if cut > remaining // 2:
+            return window[: cut + 1].strip()
+    # No sentence boundary in range - hard cut at a word boundary.
+    last_space = window.rfind(" ")
+    return (window[:last_space] if last_space > remaining // 2 else window).strip()
 
 
 async def _rerank_candidates(

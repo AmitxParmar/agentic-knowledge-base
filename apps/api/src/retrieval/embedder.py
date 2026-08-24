@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import logging
 import struct
+from collections import OrderedDict
 from time import monotonic
 from typing import Any
 
@@ -31,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 _EMBED_DIM = settings.EMBEDDING_DIM
 _EMBED_BATCH_SIZE = settings.EMBED_BATCH_SIZE
+
+# Query-embedding LRU (per worker). Keyed on the exact query string.
+_embed_query_cache: OrderedDict[str, list[float]] = OrderedDict()
+_EMBED_QUERY_CACHE_SIZE = settings.EMBED_QUERY_CACHE_SIZE
 
 
 class EmbeddingError(Exception):
@@ -177,9 +182,24 @@ async def _embed_once(texts: list[str], input_type: str) -> list[list[float]]:
 
 
 async def embed_query(query: str) -> list[float]:
-    """Embed a single user query. Uses search_query input type for Cohere."""
+    """Embed a single user query. Uses search_query input type for Cohere.
+
+    Served from a small in-process LRU first — the same query text recurs
+    across agent iterations, near-duplicate questions, and semantic-cache
+    lookups, and each miss is a paid API round-trip.
+    """
+    cached = _embed_query_cache.get(query)
+    if cached is not None:
+        _embed_query_cache.move_to_end(query)
+        return cached
+
     vectors = await embed_texts([query], input_type="search_query")
-    return vectors[0]
+    vector = vectors[0]
+
+    _embed_query_cache[query] = vector
+    while len(_embed_query_cache) > _EMBED_QUERY_CACHE_SIZE:
+        _embed_query_cache.popitem(last=False)
+    return vector
 
 
 async def rerank(query: str, passages: list[str], *, top_k: int | None = None) -> list[float]:

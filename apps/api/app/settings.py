@@ -150,15 +150,43 @@ class Settings(BaseSettings):
     )
     MAX_CONCURRENT_PDF_PARSES: int = Field(default=2, description="Max concurrent PDF parses")
 
+    # ── Run budgets + caches ─────────────────────────────────────────────
+    AGENT_TOKEN_BUDGET: int = Field(
+        default=60_000,
+        description="Max cumulative LLM tokens per research run; exceeding it routes to final synthesis",
+    )
+    EMBED_QUERY_CACHE_SIZE: int = Field(
+        default=1024,
+        description="In-process LRU size for query embeddings (per worker)",
+    )
+    RETRIEVAL_CACHE_ENABLED: bool = Field(
+        default=True,
+        description="Cache retrieval results per (workspace, question) in Redis; evicted on corpus change",
+    )
+    RETRIEVAL_CACHE_TTL: int = Field(
+        default=600,
+        description="Retrieval cache TTL in seconds (staleness backstop; corpus change evicts sooner)",
+    )
+
     # Rate limits
     UPLOAD_RATE_LIMIT: int = Field(default=5, description="Uploads per minute per IP")
     CHAT_RATE_LIMIT: int = Field(default=20, description="Chat requests per minute per IP")
 
+    # ── Auth (ADR-008) ────────────────────────────────────────────────────
+    # AUTH_MODE=stub keeps the single-tenant dev defaults (header override +
+    # fixed ids). AUTH_MODE=jwt requires signed Bearer tokens; the secret
+    # must then be set or every request fails closed with 401.
+    AUTH_MODE: str = Field(default="stub", description="stub | jwt")
+    AUTH_JWT_SECRET: str = Field(
+        default="", description="HS256 secret for token minting/verification (required in jwt mode)"
+    )
+    AUTH_TOKEN_TTL: int = Field(default=43_200, description="Token lifetime in seconds (12h)")
+
     # ── Semantic Cache (ADR-007) ─────────────────────────────────────────
     # Caches completed research answers keyed by query embedding similarity.
-    # Disabled by default; set to true when usage volume justifies it.
+    # Safe to enable now that document-change invalidation ships with it.
     SEMANTIC_CACHE_ENABLED: bool = Field(
-        default=False,
+        default=True,
         description="Enable semantic answer caching (Redis + Cohere embeddings)",
     )
     SEMANTIC_CACHE_TTL: int = Field(

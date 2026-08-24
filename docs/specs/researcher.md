@@ -9,8 +9,9 @@ user's uploaded documents, and produces a citation-backed answer.
 (Model Gateway), `schema.md` (`research_runs`, `citations`).
 
 ## Scope
-This agent only. Planner and Critic are separate future specs — see
-`PRD.md` → Non-Goals for why they aren't here yet.
+This agent only. Pipeline composition (planner/synthesize nodes) lives in
+`docs/specs/research-pipeline.md`; a Critic remains a future spec - see
+`PRD.md` Non-Goals for why they aren't here yet.
 
 ## Inputs
 | Input | Description |

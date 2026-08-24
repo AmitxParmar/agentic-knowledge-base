@@ -33,7 +33,7 @@
 | Clients | Minimal web | Partial Next.js UI |
 | API Gateway | FastAPI REST + SSE (AG-UI) | Done (rate limits + `/healthz` + `/readyz` wired) |
 | Retrieval | Hybrid + rerank | **Done** | Cohere embed/rerank; persisted `tsv` + GIN |
-| Orchestration | 1 Research Agent | Done (no Planner / Critic) |
+| Orchestration | Composed pipeline | Done — planner → researcher ⇄ synthesize nodes (`docs/specs/research-pipeline.md`); no Critic yet |
 | Memory | — | Deferred |
 | Storage | PG + vectors + FS | **Done** | pgvector on `chunks.embedding`; raw files in R2/local |
 | Ingestion | arq 6-stage | Code done; E2E unproven |
@@ -85,10 +85,13 @@
 |---|---|---|
 | FastAPI factory, CORS, `/health` | Done | `app/main.py` |
 | Ingestion + research routers mounted | Done | |
-| Auth (JWT / multi-user) | Partial | `auth/stub.py` single-tenant only |
+| Auth (JWT / multi-user) | **Done** (single-user) | ADR-008: `AUTH_MODE=jwt` Bearer tokens via `src/auth/jwt.py` + `scripts/mint_token.py`; stub mode is the default for local runs |
 | Rate limiting | **Done** | Redis fixed-window; upload 5/min, chat 20/min per IP (`src/shared/rate_limit.py`) |
 | Input Guardrail (LLM Guard) | Deferred | PRD Non-Goals |
-| Semantic Cache Check (Redis vector) | **Done** (flag-off) | ADR-007; invalidation + hit-rate metrics shipped |
+| Semantic Cache Check (Redis vector) | **Done** (default on) | ADR-007; invalidation + hit-rate metrics shipped |
+| Run Budgets + Retrieval/Embedding Caches | **Done** | `docs/specs/budgets-and-caches.md`: token cap routes to synthesis; query-embedding LRU; Redis retrieval cache with corpus-change eviction |
+| Offline Eval Harness | **Done** | `docs/specs/evaluation.md`: golden set + recall/nDCG/MRR/ΔNDCG + CI gate (`scripts/eval/run_eval.py`) |
+| Parent-Context Expansion | **Done** | `retrieval.md`: adjacent-sibling context rides inside the hit's own citation block |
 | Expanded `/health` (DB + Redis + embedding) | **Done** | `/healthz` (liveness) + `/readyz` (Redis ping + DB SELECT 1 + cached Cohere probe via `embedder.health_check()`) |
 
 ### Checklist
@@ -128,9 +131,9 @@
 | Citation-at-retrieval | Done | Spec + integration test scaffolding |
 | Iteration bound (mini circuit breaker) | **Done** | `AGENT_RUN_TIMEOUT` (60 s) + `AGENT_ITERATION_TIMEOUT` (30 s) + evidence confidence gate |
 | SSE (AG-UI) progress stages | Done | Must match `ux.md` vocabulary |
-| Planner Agent | Deferred | Needs `docs/specs/planner.md` first |
+| Planner (graph node) | **Done** | `docs/specs/research-pipeline.md` — cheap-model decomposition, single-step fallback |
 | Critic + reflection loop | Deferred | Needs `docs/specs/critic.md` first |
-| Plan Cache (APC) | Deferred | Depends on Planner |
+| Plan Cache (APC) | Deferred | Depends on plans repeating across runs |
 | Full Circuit Breaker (cost, reflections) | Deferred | After Critic |
 
 ### Checklist (MVP ops)

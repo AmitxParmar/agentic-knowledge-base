@@ -97,6 +97,20 @@ and re-raises as `RetrievalError`. The retrieval pipeline's outer `except`
 block propagates the typed error to the router, which maps it to a
 user-visible `RETRIEVAL_ERROR` event — not a raw 500.
 
+### Parent-Context Expansion (post-selection)
+After rerank + dedup select the final chunks, each selected chunk pulls its
+adjacent siblings (same document, position +/- 1) and merges their text into
+its own citation block via \RetrievedChunk.context_text\. The context rides
+INSIDE the same [n] marker when packed for the model - it is never cited
+separately, preserving the citation-at-retrieval contract. Guards:
+- Sibling text is sentence-bounded to a total of ~1200 chars per chunk.
+- The hit's own text is never duplicated into the context field.
+- Best-effort: any DB failure leaves chunks unchanged (debug log only).
+- Cache round-trips include context_text (serialized whole).
+
+Rationale: rerank hits are often fragments of their section; local sibling
+context restores the full argument without re-chunking or schema changes.
+
 ### Observability Events
 The pipeline emits named Logfire spans at each stage:
 - `retrieval.pipeline` — full pipeline span with `workspace_id`

@@ -29,6 +29,7 @@ from src.research.models import Citation
 from src.shared.database import get_session
 from src.shared.errors import NotFoundError
 from src.shared.rate_limit import check_upload_rate_limit
+from src.shared.retrieval_cache import invalidate_retrieval_cache
 from src.shared.semantic_cache import SemanticCache
 
 router = APIRouter()
@@ -320,7 +321,8 @@ async def delete_document(
         )
     )
 
-    # The corpus changed → cached answers for this workspace are stale (ADR-007).
-    # Best-effort: a Redis failure must not fail the delete.
+    # The corpus changed → cached answers and retrievals for this workspace are
+    # stale (ADR-007). Best-effort: a Redis failure must not fail the delete.
     with contextlib.suppress(Exception):
         await SemanticCache().invalidate_workspace(str(workspace_id))
+        await invalidate_retrieval_cache(str(workspace_id))
