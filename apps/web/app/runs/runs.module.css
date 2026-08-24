@@ -59,48 +59,6 @@
   background: hsl(var(--destructive) / 0.1);
 }
 
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  list-style: none;
-}
-
-.runCard {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  width: 100%;
-  padding: var(--space-4);
-  text-align: left;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background: hsl(var(--background));
-  cursor: pointer;
-  transition: border-color 200ms ease-out;
-}
-
-.runCard:hover {
-  border-color: hsl(var(--accent));
-}
-
-.runQuestion {
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.5;
-}
-
-.runMeta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.runDate {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-}
-
 .answerSection {
   margin-top: var(--space-6);
 }

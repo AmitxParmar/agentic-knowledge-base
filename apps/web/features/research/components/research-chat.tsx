@@ -6,8 +6,10 @@
  *             Owns thread hydration (initialMessages) and syncs its live
  *             message list back to the conversation store so thread switching
  *             restores history. Renders an inline progress-stage strip while
- *             a research run is streaming.
- * Dependencies: api/use-research-chat.ts, citation-ref.tsx, progress-stage-list
+ *             a research run is streaming, a block cursor on the streaming
+ *             answer, and a context-cards sources panel once citations land.
+ * Dependencies: api/use-research-chat.ts, citation-ref.tsx, progress-stage-list,
+ *               context-cards.tsx
  * Scope:      Research page conversation surface.
  */
 
@@ -16,6 +18,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useResearchChat } from "../api/use-research-chat";
 import { CitationRef } from "./citation-ref";
+import { ContextCards } from "./context-cards";
 import { ProgressStageList } from "./progress-stage-list";
 import { VoiceButton } from "./voice-button";
 import { groupCitations, type Citation, type GroupedCitation } from "../utils/parse-citations";
@@ -141,41 +144,52 @@ export function ResearchChat({
               </div>
             )}
 
-            {messages.map((message) => (
-              <div key={message.id} className={`${styles.msg} ${styles[message.role]}`}>
-                <span className={styles.role}>
-                  {message.role === "user" ? "< QUERY >" : "<< ANSWER >>"}
-                </span>
+            {messages.map((message) => {
+              const isStreamingAnswer =
+                message.role === "assistant" && isLoading && message === messages[messages.length - 1];
+              const hasText = message.parts.some((p) => p.type === "text" && typeof p.content === "string" && p.content.length > 0);
 
-                <div className={styles.bubble}>
-                  {message.parts.map((part, index) => {
-                    if (part.type === "text" && typeof part.content === "string") {
-                      return (
-                        <span key={index} className={styles.text}>
-                          {renderTextWithCitations(part.content, grouped)}
-                        </span>
-                      );
-                    }
-                    if (part.type === "tool-call") {
-                      return (
-                        <span key={index} className={styles.toolCall}>
-                          [ {part.name?.toUpperCase() ?? "TOOL RESULT"} ]
-                        </span>
-                      );
-                    }
-                    return null;
-                  })}
+              return (
+                <div key={message.id} className={`${styles.msg} ${styles[message.role]}`}>
+                  <span className={styles.role}>
+                    {message.role === "user" ? "< QUERY >" : "<< ANSWER >>"}
+                  </span>
 
-                  {message.role === "assistant" && isLoading && message === messages[messages.length - 1] && (
-                    <span className={styles.typing}>
-                      <span className={styles.dot} />
-                      <span className={styles.dot} />
-                      <span className={styles.dot} />
-                    </span>
-                  )}
+                  <div className={styles.bubble}>
+                    {message.parts.map((part, index) => {
+                      if (part.type === "text" && typeof part.content === "string") {
+                        return (
+                          <span key={index} className={styles.text}>
+                            {renderTextWithCitations(part.content, grouped)}
+                          </span>
+                        );
+                      }
+                      if (part.type === "tool-call") {
+                        return (
+                          <span key={index} className={styles.toolCall}>
+                            [ {part.name?.toUpperCase() ?? "TOOL RESULT"} ]
+                          </span>
+                        );
+                      }
+                      return null;
+                    })}
+
+                    {isStreamingAnswer &&
+                      (hasText ? (
+                        <span className={styles.cursor} aria-hidden="true" />
+                      ) : (
+                        <span className={styles.typing}>
+                          <span className={styles.dot} />
+                          <span className={styles.dot} />
+                          <span className={styles.dot} />
+                        </span>
+                      ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
+
+            {!isLoading && <ContextCards citations={grouped} />}
 
             <div ref={messagesEndRef} />
           </div>

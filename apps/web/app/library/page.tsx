@@ -8,6 +8,7 @@
 
 "use client";
 
+import { useMemo, useState } from "react";
 import { useDeleteDocument, useDocuments } from "@/features/research/api/use-documents";
 import styles from "./library.module.css";
 
@@ -18,6 +19,20 @@ function StatusBadge({ status }: { status: string }) {
 export default function LibraryPage() {
   const { data, isLoading, error } = useDocuments();
   const deleteMutation = useDeleteDocument();
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
+  // ponytail: chips derived from statuses actually present; no canonical list to maintain
+  const statusCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const doc of data?.documents ?? []) {
+      counts.set(doc.processing_status, (counts.get(doc.processing_status) ?? 0) + 1);
+    }
+    return [...counts.entries()];
+  }, [data]);
+
+  const visible = data?.documents.filter(
+    (doc) => !statusFilter || doc.processing_status === statusFilter,
+  );
 
   if (isLoading) {
     return <p className={styles.empty}>Loading documents…</p>;
@@ -47,8 +62,30 @@ export default function LibraryPage() {
         {data.total} document{data.total === 1 ? "" : "s"}
       </p>
 
+      <div className={styles.filters} role="group" aria-label="Filter by status">
+        <button
+          type="button"
+          className={`${styles.chip} ${statusFilter === null ? styles.chipActive : ""}`}
+          onClick={() => setStatusFilter(null)}
+          aria-pressed={statusFilter === null}
+        >
+          All {data.total}
+        </button>
+        {statusCounts.map(([status, count]) => (
+          <button
+            key={status}
+            type="button"
+            className={`${styles.chip} ${statusFilter === status ? styles.chipActive : ""}`}
+            onClick={() => setStatusFilter(statusFilter === status ? null : status)}
+            aria-pressed={statusFilter === status}
+          >
+            {status} {count}
+          </button>
+        ))}
+      </div>
+
       <ul className={styles.list}>
-        {data.documents.map((doc) => (
+        {(visible ?? []).map((doc) => (
           <li key={doc.document_id} className={styles.item}>
             <div className={styles.itemInfo}>
               <span className={styles.filename}>{doc.filename}</span>

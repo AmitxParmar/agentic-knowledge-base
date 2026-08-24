@@ -59,7 +59,15 @@ export function ResearchWorkspace() {
   // in the active answer while a run is streaming. Run state is driven by the
   // chat SSE stream (stages / citations / RUN_FINISHED / RUN_ERROR) — the
   // single execution path, no WebSocket.
-  const { state: runState, beginRun, applyEvent } = useResearchRun();
+  const { state: runState, beginRun, applyEvent, reset } = useResearchRun();
+
+  // Run state (citations/stages/status) belongs to one run in one thread.
+  // Dropping it on thread switch keeps restored history from rendering
+  // another run's sources panel or resolving its [n] markers against
+  // foreign citations.
+  useEffect(() => {
+    reset();
+  }, [activeThreadId, reset]);
 
   const handleQuestion = useCallback(
     (prompt: string) => {

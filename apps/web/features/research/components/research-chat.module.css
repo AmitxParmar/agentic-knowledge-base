@@ -164,6 +164,16 @@
   align-self: flex-start;
 }
 
+.cursor {
+  display: inline-block;
+  width: 8px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: hsl(var(--accent));
+  animation: blink 1s steps(1) infinite;
+}
+
 .typing {
   display: inline-flex;
   align-items: center;

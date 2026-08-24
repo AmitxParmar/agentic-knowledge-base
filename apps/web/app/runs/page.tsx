@@ -11,7 +11,14 @@
 import { useState } from "react";
 import { useRunHistory } from "@/features/research/api/use-run-history";
 import { useRunDetail } from "@/features/research/api/use-research-run";
+import { TaskRows, type TaskRowStatus } from "@/features/research/components/task-rows";
 import styles from "./runs.module.css";
+
+function toTaskRowStatus(status: string): TaskRowStatus {
+  // ponytail: pass-through for known statuses, anything else renders as pending
+  if (status === "running" || status === "complete" || status === "failed") return status;
+  return "pending";
+}
 
 function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
   const { data, isLoading, error } = useRunDetail(runId);
@@ -71,23 +78,15 @@ function RunList({ onSelect }: { onSelect: (runId: string) => void }) {
         {data.total} run{data.total === 1 ? "" : "s"}
       </p>
 
-      <ul className={styles.list}>
-        {data.runs.map((run) => (
-          <li key={run.run_id}>
-            <button type="button" className={styles.runCard} onClick={() => onSelect(run.run_id)}>
-              <span className={styles.runQuestion}>{run.question}</span>
-              <div className={styles.runMeta}>
-                <span className={`${styles.badge} ${styles[run.status] ?? ""}`}>
-                  {run.status}
-                </span>
-                <time className={styles.runDate} dateTime={run.created_at}>
-                  {new Date(run.created_at).toLocaleString()}
-                </time>
-              </div>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <TaskRows
+        rows={data.runs.map((run) => ({
+          id: run.run_id,
+          label: run.question,
+          meta: new Date(run.created_at).toLocaleDateString(),
+          status: toTaskRowStatus(run.status),
+        }))}
+        onSelect={onSelect}
+      />
     </div>
   );
 }
