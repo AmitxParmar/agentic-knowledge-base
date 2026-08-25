@@ -151,7 +151,16 @@ async def _hyde_expand(question: str) -> str:
         },
         {"role": "user", "content": question},
     ]
-    return await complete(prompt, temperature=0.1, max_tokens=256)
+    try:
+        expanded = await complete(prompt, temperature=0.1, max_tokens=256)
+    except Exception:
+        logger.debug("HyDE expansion failed, falling back to original question", exc_info=True)
+        return question
+    # Guard Cohere 400: complete() returns "" on empty content; an empty HyDE
+    # query would embed as [""] which Cohere rejects outright (see embedder.py).
+    if not expanded or not expanded.strip():
+        return question
+    return expanded
 
 
 async def _hybrid_search(

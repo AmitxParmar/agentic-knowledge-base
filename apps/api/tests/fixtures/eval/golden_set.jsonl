@@ -1,0 +1,12 @@
+// Golden-set schema reference (docs/specs/evaluation.md).
+//
+// One JSON object per line. `workspace_id` and `expected_chunk_ids`
+// reference a SEEDED corpus — ids below are placeholders that document
+// the shape; production sets are generated from ingested documents via
+// scripts/seed_demo_docs.py + manual curation of question/chunk pairs.
+//
+// This fixture doubles as the harness unit-test input (fake rank_fn),
+// so it must parse without any live services.
+{"id": "q1", "question": "What refund window does the policy allow?", "workspace_id": "00000000-0000-0000-0000-000000000001", "expected_chunk_ids": ["chunk-refund-a", "chunk-refund-b"], "notes": "policy.pdf §3"}
+{"id": "q2", "question": "Who approved the Q3 budget override?", "workspace_id": "00000000-0000-0000-0000-000000000001", "expected_chunk_ids": ["chunk-budget-minutes"], "notes": "meeting-minutes.md"}
+{"id": "q3", "question": "How does the retry backoff schedule work?", "workspace_id": "00000000-0000-0000-0000-000000000002", "expected_chunk_ids": ["chunk-retry-design", "chunk-retry-config"], "notes": "cross-workspace isolation check"}

@@ -57,6 +57,17 @@ async def _get_pool() -> asyncpg.Pool:
     return _pool
 
 
+async def close() -> None:
+    """Dispose the shared checkpoint pool. Called on app/worker shutdown so
+    the process doesn't leak its Postgres sockets past its own lifetime."""
+    global _pool
+    if _pool is not None:
+        try:
+            await _pool.close()
+        finally:
+            _pool = None
+
+
 async def setup() -> None:
     """Idempotent schema creation. Safe to call on every worker start."""
     pool = await _get_pool()

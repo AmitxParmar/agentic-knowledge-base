@@ -194,10 +194,14 @@ All durations strictly in the 150–300ms tolerance.
 
 ---
 
-## 7. Styling approach — CSS modules (no Tailwind)
+## 7. Styling approach — Tailwind CSS v4 + CSS modules (ADR-009)
 
-This project uses **CSS custom properties + per-component CSS modules**
-(`.module.css`), not Tailwind. Rationale:
+Superseded by `docs/adr/ADR-009-tailwind-v4.md`: Tailwind CSS v4 is the
+styling tool for new/rebuilt surfaces (research chat), configured via
+`postcss.config.mjs` with tokens declared in `globals.css` under `@theme`.
+CSS modules remain in use on legacy surfaces (`library/`, `runs/`) and for
+genuinely complex local styles; both idioms share the same custom-property
+tokens. Historical rationale for the original modules-only decision:
 
 - Zero new build dependencies (no `tailwindcss`, `postcss`, `autoprefixer`).
 - The existing scaffold (`app/page.module.css`) already uses this pattern.

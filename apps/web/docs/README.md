@@ -177,15 +177,12 @@ apps/web/
 │       │
 │       ├── components/
 │       │   ├── research-workspace.tsx       ADD  layout shell (sidebar + chat + answer)
-│       │   ├── upload-composer.tsx          ADD  file picker + source-type select + upload CTA
-│       │   │   ├── upload-dropzone.tsx      ADD  (compound) drag/drop
-│       │   │   ├── upload-file-meta.tsx     ADD  chosen file name/size/type
-│       │   │   └── upload-stage-pill.tsx    ADD  live stage badge
-│       │   ├── question-composer.tsx        ADD  textarea + char hint + submit
-│       │   ├── progress-stage-list.tsx      ADD  fixed-vocabulary stage timeline
-│       │   │   └── stage-pill.tsx           ADD  single stage (pending→active→complete)
+│       │   ├── upload-composer.tsx          ADD  compact ingestion card + ThinkingTrace progress
+│       │   ├── prompt-bar.tsx               ADD  Perplexity-style composer (textarea + attach/mic/send)
+│       │   ├── thinking-trace.tsx           ADD  inline expandable stage trace (ux.md vocabulary only)
+│       │   ├── research-chat.tsx            MODIFY  thread rows, inline trace, sources panel
+│       │   ├── context-cards.tsx            ADD  per-chunk source cards under settled answers
 │       │   ├── citation-ref.tsx             ADD  superscript [n] button + hover popover
-│       │   ├── citation-panel.tsx           ADD  side sheet: source_ref, score bar, copy chunk_id
 │       │   └── empty-state.tsx              ADD  reusable empty state
 │       │
 │       ├── utils/

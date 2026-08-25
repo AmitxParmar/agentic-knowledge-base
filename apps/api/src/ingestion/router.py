@@ -271,7 +271,9 @@ async def get_chunk(
     session: AsyncSession = Depends(get_session),
 ) -> ChunkResponse:
     """Fetch a single chunk's full text by ID."""
-    result = await session.execute(select(Chunk).where(Chunk.id == chunk_id))
+    result = await session.execute(
+        select(Chunk).where(Chunk.id == chunk_id).options(selectinload(Chunk.document))
+    )
     chunk = result.scalar_one_or_none()
 
     if chunk is None:

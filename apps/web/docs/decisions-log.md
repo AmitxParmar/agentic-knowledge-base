@@ -258,3 +258,24 @@ ADR. The `cn()` helper is a 5-line function, not a dependency.
 Tailwind references. The shadcn/ui primitives originally planned are
 replaced with hand-built CSS-module components styled from the same
 tokens. No ADR-004 update needed for Tailwind.
+
+---
+
+### D-018: Styling approach — Tailwind CSS v4 (supersedes D-017)
+
+**Decision:** Adopt Tailwind CSS v4 for new/rebuilt surfaces per
+docs/adr/ADR-009-tailwind-v4.md. The research chat surface is rebuilt with
+Tailwind utilities over the same globals.css tokens (@theme inline
+mapping); legacy CSS-module surfaces (library/, uns/, splash) keep
+working unchanged.
+
+**Reasoning:** The Perplexity-style chat rebuild (inline thinking trace,
+context cards, prompt bar, clean-dark palette replacing Tactical Telemetry)
+is interaction-heavy visual work. Porting the reference designs to CSS
+modules would duplicate every utility as bespoke class pairs across ~8
+module files. Tailwind v4 needs no config file and maps tokens declared in
+CSS, so token discipline (raw hex ban) is preserved.
+
+**Consequence:** D-017 is historical; design-system.md section 7 amended.
+Progress vocabulary remains locked to docs/ui/ux.md — the thinking trace
+renders only canonical stage strings.

@@ -423,6 +423,26 @@ async def cache_stats(
     return await SemanticCache().stats(str(workspace_id))
 
 
+@router.get("/model-info")
+async def model_info() -> dict[str, str]:
+    """Exposed for UI header — which LLM is actually wired via the gateway.
+
+    Frontend shows primary + fallback so users know why RATE_LIMIT points
+    to Groq vs OpenRouter. No secrets leaked.
+    """
+    from app.settings import settings
+
+    primary = f"{settings.MODEL_GATEWAY_PROVIDER}/{settings.MODEL_GATEWAY_MODEL}"
+    fallback = f"openrouter/{settings.MODEL_GATEWAY_OPENROUTER_MODEL}"
+    return {
+        "provider": settings.MODEL_GATEWAY_PROVIDER,
+        "model": settings.MODEL_GATEWAY_MODEL,
+        "primary": primary,
+        "fallback": fallback,
+        "fallback_model": settings.MODEL_GATEWAY_OPENROUTER_MODEL,
+    }
+
+
 class RunSummary(BaseModel):
     run_id: str
     question: str

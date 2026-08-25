@@ -1,7 +1,7 @@
 .link {
   display: inline-flex;
   align-items: center;
-  height: 36px;
+  height: 48px;
   padding: 0 var(--space-4);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -9,7 +9,9 @@
   text-transform: uppercase;
   color: hsl(var(--muted-foreground));
   border-left: 1px solid hsl(var(--border));
-  transition: color 150ms ease-out, background 150ms ease-out;
+  border-bottom: 2px solid transparent;
+  transition: color 150ms ease-out, background 150ms ease-out, border-color 150ms ease-out;
+  box-sizing: border-box;
 }
 
 .link:first-child {
@@ -18,11 +20,11 @@
 
 .link:hover {
   color: hsl(var(--foreground));
-  background: hsl(var(--muted));
+  background: hsl(var(--muted) / 0.5);
 }
 
 .link[aria-current="page"] {
   color: hsl(var(--foreground));
-  border-bottom: 2px solid hsl(var(--accent));
-  padding-bottom: calc(var(--space-4) - 2px);
+  border-bottom-color: hsl(var(--accent));
+  background: hsl(var(--muted) / 0.3);
 }

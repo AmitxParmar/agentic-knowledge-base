@@ -78,6 +78,10 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> int:
     with logfire.span("ingestion.chunk"):
         chunk_results = chunk_document(content, source_type=doc.source_type.value)
 
+    # Drop blank chunks (Chonkie can emit whitespace-only segments on empty pages).
+    # Without this, embed_texts would sanitize to " " and waste Cohere quota,
+    # and we'd persist meaningless vectors. Keep at least one non-blank chunk.
+    chunk_results = [c for c in chunk_results if c.text and c.text.strip()]
     if not chunk_results:
         raise ValueError(f"Extraction produced no chunks for document {document_id}")
 

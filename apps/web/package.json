@@ -11,7 +11,6 @@
     "check-types": "next typegen && tsc --noEmit"
   },
   "dependencies": {
-    "@repo/ui": "workspace:*",
     "@tanstack/ai": "^0.43.0",
     "@tanstack/ai-client": "^0.23.0",
     "@tanstack/ai-react": "^0.19.0",
@@ -23,12 +22,12 @@
     "zod": "^4.2.0"
   },
   "devDependencies": {
-    "@repo/eslint-config": "workspace:*",
-    "@repo/typescript-config": "workspace:*",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.15.3",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "eslint": "^9.39.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "5.9.2"
   }
 }

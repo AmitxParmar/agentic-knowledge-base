@@ -20,6 +20,7 @@ import src.shared.models  # noqa: F401
 from app.settings import settings
 from src.ingestion.pipeline import run_ingestion_job
 from src.observability.setup import flush_langfuse
+from src.research.checkpoint import close as close_checkpoint_pool
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -49,6 +50,7 @@ async def shutdown(ctx: dict[str, Any]) -> None:
       3. Flush pending Langfuse spans so tail traces aren't lost
     """
     _ = logfire.info("worker.stopped")
+    await close_checkpoint_pool()
     flush_langfuse()
 
 

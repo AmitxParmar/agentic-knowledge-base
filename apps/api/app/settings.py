@@ -40,11 +40,12 @@ class Settings(BaseSettings):
     # Groq
     MODEL_GATEWAY_GROQ_API_KEY: str = Field(default="", description="Groq API key")
 
-    # OpenRouter (fallback)
+    # OpenRouter (fallback) — must be a :free id to stay on free quota.
+    # The roster churns weekly; verify at https://openrouter.ai/models?max_price=0
     MODEL_GATEWAY_OPENROUTER_API_KEY: str = Field(default="", description="OpenRouter API key")
     MODEL_GATEWAY_OPENROUTER_MODEL: str = Field(
-        default="mistralai/mistral-7b-instruct",
-        description="Fallback model on OpenRouter",
+        default="openai/gpt-oss-20b:free",
+        description="Fallback model on OpenRouter (use :free suffix for free tier)",
     )
 
     # ── Cohere (embeddings + rerank) ──────────────────────────────────────

@@ -46,6 +46,7 @@ Style and structure rules only. Technology *choices* are justified in
 | API gateway | FastAPI |
 | Orchestration | LangGraph |
 | Frontend | Next.js |
+| Web styling / utility CSS | tailwindcss + @tailwindcss/postcss (dev, ADR-009) |
 | Vector index | pgvector (Turbovec replaced) |
 | Relational DB | PostgreSQL |
 | Local model serving | LM Studio (OpenAI-compatible endpoint) |

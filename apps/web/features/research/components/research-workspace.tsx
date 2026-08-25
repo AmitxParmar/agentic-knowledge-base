@@ -1,10 +1,10 @@
 /**
  * features/research/components/research-workspace.tsx
  * ---------------------------------------------------
- * Purpose:    Orchestrates the research loop in a Perplexity-style layout —
- *             conversation rail on the left, working pane on the right. The
- *             chat thread is the single surface for progress + answer + sources
- *             (citation-backed); the upload is a compact panel for ingestion.
+ * Purpose:    Orchestrates the research loop — conversation rail on the
+ *             left, working pane on the right. The chat thread is the single
+ *             surface for progress (inline thinking trace), answer, and
+ *             sources; ingestion lives in a collapsible panel above it.
  * Dependencies: conversation-sidebar, upload-composer, research-chat
  * Scope:      /research page body.
  */
@@ -18,7 +18,6 @@ import { ResearchChat } from "./research-chat";
 import { useConversations } from "../api/use-conversations";
 import { useResearchRun, type RunEvent } from "../api/use-research-run";
 import { searchableDocumentsExist } from "../research-service";
-import styles from "./research-workspace.module.css";
 
 export function ResearchWorkspace() {
   const [ready, setReady] = useState(false);
@@ -88,54 +87,71 @@ export function ResearchWorkspace() {
     [applyEvent, activeThreadId, linkRun],
   );
 
+  const toggleUpload = useCallback(() => setShowUpload((v) => !v), []);
+
   return (
-    <main className={styles.workspace}>
-      <aside className={styles.rail}>
+    <main className="flex h-[calc(100vh-52px)] min-h-0">
+      {/* rail */}
+      <div className="flex w-64 shrink-0 flex-col border-r border-line bg-inset/60">
         <ConversationSidebar
           threads={threads}
           activeId={activeThreadId}
           onSelect={setActiveThread}
           onDelete={removeThread}
         />
-        <div className={styles.railActions}>
-          <button type="button" className={styles.newThread} onClick={startNew}>
-            [ + New research ]
-          </button>
-        </div>
-      </aside>
+        <button
+          type="button"
+          onClick={startNew}
+          className="mx-2 mb-3 flex h-9 items-center gap-1.5 rounded-control px-2.5 text-[13px] font-medium text-ink transition-colors duration-150 hover:bg-hover-2"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          New research
+        </button>
+      </div>
 
-      <section className={styles.work}>
-        <div className={styles.workHeader}>
-          <h1 className={styles.workTitle}>Research Terminal</h1>
-          <span className={styles.workMeta}>
-            CITATIONS / {runState.citations.length} SRC /{" "}
-            {runState.runId?.slice(0, 8).toUpperCase() ?? "—"}
-          </span>
-        </div>
-
-        <div className={styles.uploadRow}>
+      {/* work pane */}
+      <section className="flex min-h-0 flex-1 flex-col px-4 pt-2">
+        <div className="flex items-center px-2 pb-1">
           <button
             type="button"
-            className={styles.uploadToggle}
-            onClick={() => setShowUpload((v) => !v)}
+            onClick={toggleUpload}
             aria-expanded={showUpload}
+            className="flex h-7 items-center gap-1.5 rounded-control px-2 text-[12px] text-ink-3 transition-colors duration-150 hover:bg-hover hover:text-ink"
           >
-            {showUpload ? "▴ Hide ingestion" : "▾ Ingest source"}
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={showUpload ? "transition-transform duration-200 rotate-90" : "transition-transform duration-200"}
+              aria-hidden="true"
+            >
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+            Ingest source
           </button>
-          {!ready ? (
-            <span className={styles.gate}>[ WAIT ] Ingest a document before asking</span>
-          ) : (
-            <span className={styles.gateReady}>[ READY ]</span>
+          {!ready && (
+            <span className="ml-2 rounded-full bg-orange/15 px-2 py-0.5 text-[11px] font-medium text-orange">
+              Ingest a document before asking
+            </span>
           )}
         </div>
 
         {showUpload && (
-          <UploadComposer
-            onIngestionComplete={() => {
-              setReady(true);
-              setShowUpload(false);
-            }}
-          />
+          <div className="mb-3">
+            <UploadComposer
+              onIngestionComplete={() => {
+                setReady(true);
+                setShowUpload(false);
+              }}
+            />
+          </div>
         )}
 
         <ResearchChat
@@ -145,10 +161,12 @@ export function ResearchWorkspace() {
           citations={runState.citations}
           stages={runState.stages}
           runStatus={runState.status}
+          runError={runState.error}
           disabled={!ready}
           onQuestion={handleQuestion}
           onRunEvent={handleRunEvent}
           onMessagesChange={(msgs) => syncMessages(activeThreadId, msgs)}
+          onToggleUpload={toggleUpload}
         />
       </section>
     </main>

@@ -6,6 +6,8 @@
   padding: 0 var(--space-4);
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--panel));
+  flex-shrink: 0;
+  z-index: 40;
 }
 
 .brand {
@@ -22,6 +24,7 @@
   text-transform: uppercase;
   color: hsl(var(--foreground));
   text-decoration: none;
+  transition: color 150ms ease-out;
 }
 
 .logo:hover {
@@ -35,12 +38,20 @@
   color: hsl(var(--muted-foreground));
   border: 1px solid hsl(var(--border));
   padding: 1px var(--space-2);
+  border-radius: 4px;
   text-transform: uppercase;
 }
 
 .nav {
   display: flex;
-  gap: 0;
+  align-items: center;
+  height: 100%;
+}
+
+.rightSection {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
 }
 
 .status {
@@ -58,7 +69,7 @@
   width: 7px;
   height: 7px;
   background: hsl(var(--success));
-  border-radius: 0;
+  border-radius: 50%;
   flex-shrink: 0;
   animation: blink 1600ms steps(1) infinite;
 }

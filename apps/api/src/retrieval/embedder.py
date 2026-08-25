@@ -90,6 +90,25 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def _sanitize_texts(texts: list[str]) -> list[str]:
+    """Replace empty/whitespace-only strings so Cohere doesn't 400.
+
+    Cohere v2 returns 400 "one of texts, images, or inputs must be
+    specified" for an empty string element (tested) and for an empty
+    array. We normalize blanks to a single space which Cohere accepts
+    (returning a valid embedding) while keeping 1:1 index alignment so
+    callers don't lose positional correspondence. Stripped blanks that
+    would have been semantically empty now carry a neutral placeholder.
+    """
+    sanitized: list[str] = []
+    for t in texts:
+        if not t or not t.strip():
+            sanitized.append(" ")
+        else:
+            sanitized.append(t)
+    return sanitized
+
+
 async def embed_texts(
     texts: list[str],
     *,
@@ -104,6 +123,9 @@ async def embed_texts(
     Processes texts in batches of EMBED_BATCH_SIZE to respect Cohere's
     96-text limit per request.
     """
+    if not texts:
+        return []
+    texts = _sanitize_texts(texts)
     all_vectors: list[list[float]] = []
     for i in range(0, len(texts), _EMBED_BATCH_SIZE):
         batch = texts[i : i + _EMBED_BATCH_SIZE]
@@ -188,15 +210,20 @@ async def embed_query(query: str) -> list[float]:
     across agent iterations, near-duplicate questions, and semantic-cache
     lookups, and each miss is a paid API round-trip.
     """
-    cached = _embed_query_cache.get(query)
+    # Guard the Cohere 400 for empty strings (see _sanitize_texts).
+    sanitized = query if query and query.strip() else " "
+    cached = _embed_query_cache.get(sanitized)
     if cached is not None:
-        _embed_query_cache.move_to_end(query)
+        _embed_query_cache.move_to_end(sanitized)
         return cached
 
-    vectors = await embed_texts([query], input_type="search_query")
+    vectors = await embed_texts([sanitized], input_type="search_query")
     vector = vectors[0]
 
-    _embed_query_cache[query] = vector
+    _embed_query_cache[sanitized] = vector
+    # Also alias the original key so the next identical empty-ish query hits.
+    if sanitized != query:
+        _embed_query_cache[query] = vector
     while len(_embed_query_cache) > _EMBED_QUERY_CACHE_SIZE:
         _embed_query_cache.popitem(last=False)
     return vector
@@ -245,20 +272,23 @@ async def rerank(query: str, passages: list[str], *, top_k: int | None = None) -
 
 
 async def _rerank_once(query: str, passages: list[str], top_k: int | None) -> list[float]:
+    # Cohere also 400s on empty query/documents; sanitize mirrors embed path.
+    safe_query = query if query and query.strip() else " "
+    safe_passages = _sanitize_texts(passages) if passages else passages
     with (
         traced_observation(
             "rerank-passages",
             as_type="retriever",
-            input={"query": query, "passages": len(passages)},
+            input={"query": safe_query, "passages": len(safe_passages)},
             metadata={"model": settings.COHERE_RERANK_MODEL},
         ) as observation,
-        logfire.span("embedder.rerank", passages=len(passages)),
+        logfire.span("embedder.rerank", passages=len(safe_passages)),
     ):
         resp = await _get_client().rerank(
             model=settings.COHERE_RERANK_MODEL,
-            query=query,
-            documents=passages,
-            top_n=top_k or len(passages),
+            query=safe_query,
+            documents=safe_passages,
+            top_n=top_k or len(safe_passages),
         )
 
         # Cohere returns results sorted by relevance; map back to input order.
@@ -274,7 +304,9 @@ async def _rerank_once(query: str, passages: list[str], top_k: int | None) -> li
 
 
 async def _cosine_fallback(query: str, passages: list[str]) -> list[float]:
-    embeddings = await embed_texts([query, *passages], input_type="search_query")
+    safe_query = query if query and query.strip() else " "
+    safe_passages = _sanitize_texts(passages) if passages else []
+    embeddings = await embed_texts([safe_query, *safe_passages], input_type="search_query")
     query_emb, passage_embs = embeddings[0], embeddings[1:]
     return [_cosine_similarity(query_emb, emb) for emb in passage_embs]
 

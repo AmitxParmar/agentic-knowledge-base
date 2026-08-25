@@ -1,0 +1,36 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid hsl(var(--border));
+  padding: 2px 8px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  max-width: 520px;
+  overflow: hidden;
+}
+.label {
+  color: hsl(var(--foreground));
+  font-weight: 700;
+}
+.value {
+  color: hsl(var(--foreground));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sep { opacity: 0.6; }
+.fallback {
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 900px) {
+  .fallback { display: none; }
+  .sep { display: none; }
+}

@@ -2,30 +2,52 @@
  * globals.css
  * ----------
  * Purpose:    Single source of truth for design tokens, typography, base
- *             styles, and global utility classes. Per-component styles live
- *             in co-located .module.css files.
+ *             styles, keyframes, and global utility classes. Tokens feed two
+ *             consumers: Tailwind utilities (@theme mapping, ADR-009) and
+ *             legacy CSS modules via hsl(var(--token)) triplets.
  * Dependencies: none (consumes CSS vars set here)
  * Scope:      App-wide.
  */
 
-/* ── Design tokens — Tactical Telemetry (dark) ─────────────────────────────── */
+@import "tailwindcss";
+
+/* ── Design tokens — clean dark, Perplexity-style ──────────────────────────── */
 
 :root {
-  /* Substrate: deactivated CRT — never pure black */
-  --background: 0 0% 4%;        /* #0A0A0A */
-  --foreground: 0 0% 92%;       /* #EAEAEA white phosphor */
-  --panel: 0 0% 7%;             /* #121212 compartment fill */
-  --muted: 0 0% 12%;
-  --muted-foreground: 0 0% 58%;
-  --accent: 0 79% 45%;          /* #E61919 — Aviation/Hazard Red (the ONLY accent) */
-  --accent-foreground: 0 0% 100%;
-  --border: 0 0% 17%;           /* hairline compartment divisions */
-  --destructive: 0 79% 45%;
-  --success: 133 100% 46%;      /* #4AF626 terminal green — status dot only */
-  --warning: 38 92% 50%;
-  --ring: 0 79% 50%;
+  /* Substrate */
+  --page: #101112;              /* app background */
+  --surface: #17181a;           /* cards, composer */
+  --surface-raised: #1d1f22;    /* menus, popovers */
+  --inset: #121315;             /* wells, chips inside surfaces */
+  --field: #1b1c1f;             /* input fields */
 
-  --radius: 0;                  /* 90° corners — mechanical rigidity */
+  /* Ink hierarchy */
+  --ink: #f2f1ec;               /* primary text */
+  --ink-2: #b4b5af;             /* secondary text */
+  --ink-3: #8a8c86;             /* metadata text (≥4.5:1 on surface) */
+
+  /* Hairlines & washes */
+  --line: rgb(255 255 255 / 8%);
+  --line-strong: rgb(255 255 255 / 16%);
+  --hover: rgb(255 255 255 / 5%);
+  --hover-2: rgb(255 255 255 / 9%);
+
+  /* Accent — restrained teal (ADR-009 era palette) */
+  --accent: #2ab5ac;
+  --accent-ink: #7fe3dc;
+  --accent-tint: rgb(42 181 172 / 14%);
+
+  /* Status */
+  --green: #3dd68c;
+  --red: #f46a6a;
+  --orange: #f5a623;
+
+  /* Radius scale */
+  --radius-card: 16px;
+  --radius-chip: 10px;
+  --radius-control: 8px;
+
+  /* Spacing scale */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -35,10 +57,76 @@
   --space-12: 48px;
   --space-16: 64px;
 
+  /* Elevation */
+  --shadow-card: 0 2px 8px -2px rgb(0 0 0 / 40%);
+  --shadow-hairline: 0 0 0 1px rgb(255 255 255 / 7%);
+  --shadow-raised: 0 12px 32px -8px rgb(0 0 0 / 55%), 0 0 0 1px rgb(255 255 255 / 6%);
+  --shadow-btn: 0 1px 1.5px rgb(0 0 0 / 30%);
+
+  /* Motion */
+  --ease-out-expo: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* Fonts (wired by next/font in layout.tsx) */
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
+  /* ── Legacy HSL-triplet tokens (CSS-module pages: library/, runs/) ───────── */
+  /* Values mirror the palette above so old modules render coherently until
+     they migrate to Tailwind utilities. Format: H S% L% (no alpha). */
+  --background: 0 0% 6%;
+  --foreground: 60 9% 94%;
+  --panel: 240 4% 10%;
+  --muted: 240 5% 8%;
+  --muted-foreground: 60 4% 71%;
+  --border: 0 0% 22%;
+  --destructive: 4 76% 69%;
+  --success: 149 62% 54%;
+  --warning: 38 92% 50%;
+  --radius: 8px;
+
+  /* Teal in HSL-triplet form for hsl(var(--token)) consumers */
+  --accent: 172 61% 44%;
+  --ring: 172 61% 50%;
+
+  /* Solid accent hex for the Tailwind layer */
+  --accent-solid: #1f9e96;
+
   color-scheme: dark;
+}
+
+/* ── Tailwind theme mapping (ADR-009) ──────────────────────────────────────── */
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-inset: var(--inset);
+  --color-field: var(--field);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-hover: var(--hover);
+  --color-hover-2: var(--hover-2);
+  --color-accent: var(--accent-solid);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-tint: var(--accent-tint);
+  --color-green: var(--green);
+  --color-red: var(--red);
+  --color-orange: var(--orange);
+
+  --radius-card: var(--radius-card);
+  --radius-chip: var(--radius-chip);
+  --radius-control: var(--radius-control);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-hairline: var(--shadow-hairline);
+  --shadow-raised: var(--shadow-raised);
+  --shadow-btn: var(--shadow-btn);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
 /* ── Base resets ───────────────────────────────────────────────────────────── */
@@ -58,32 +146,14 @@ body {
 }
 
 body {
-  color: hsl(var(--foreground));
-  background: hsl(var(--background));
+  color: var(--ink);
+  background: var(--page);
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.6;
   letter-spacing: -0.011em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-/* CRT scanlines + phosphor static — global analog degradation */
-body::after {
-  content: "";
-  pointer-events: none;
-  position: fixed;
-  inset: 0;
-  z-index: 9000;
-  background:
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0, 0, 0, 0.14) 2px,
-      rgba(0, 0, 0, 0.14) 4px
-    ),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
 }
 
 a {
@@ -128,8 +198,76 @@ code,
 /* ── Focus visibility ──────────────────────────────────────────────────────── */
 
 :focus-visible {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* ── Keyframes (shared by research-chat components) ────────────────────────── */
+
+@keyframes shimmer-text {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes eq-bounce {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes blink-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 /* ── Reduced motion ────────────────────────────────────────────────────────── */

@@ -18,11 +18,16 @@ from sqlalchemy.orm import DeclarativeBase
 from app.settings import settings
 
 # ── Engine (one per process) ──────────────────────────────────────────────────
-# ponytail: pool_pre_ping=True catches stale connections cheaply
+# ponytail: pool_pre_ping=True catches stale connections cheaply.
+# Explicit pool bounds + pool_recycle keep sockets bounded across dev
+# sleep/resume cycles (WinError 10055 hygiene — see ADR-009-era incident).
 engine = create_async_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
     echo=settings.APP_DEBUG,  # SQL logging in debug mode only
+    pool_size=5,
+    max_overflow=10,
+    pool_recycle=1800,
 )
 
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
