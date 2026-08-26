@@ -128,7 +128,7 @@ export function UploadComposer({ onIngestionComplete }: UploadComposerProps) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="mx-auto w-full max-w-[760px] rounded-card border border-line bg-surface p-4 shadow-card"
+      className="mx-auto w-full max-w-5xl rounded-card border border-line bg-surface p-4 shadow-card"
     >
       {/* controls row */}
       {!activeJobId && (
@@ -143,7 +143,7 @@ export function UploadComposer({ onIngestionComplete }: UploadComposerProps) {
                   role="radio"
                   aria-checked={sourceType === type}
                   className={cn(
-                    "h-6.5 rounded-[7px] px-2.5 text-[11.5px] font-medium uppercase tracking-wide transition-colors duration-150",
+                    "h-7 rounded-[7px] px-2.5 text-[11.5px] font-medium uppercase tracking-wide transition-colors duration-150 flex items-center justify-center",
                     sourceType === type ? "bg-surface-raised text-ink shadow-btn" : "text-ink-3 hover:text-ink",
                   )}
                   onClick={() => setSourceType(type)}
@@ -176,14 +176,14 @@ export function UploadComposer({ onIngestionComplete }: UploadComposerProps) {
             aria-label="Choose a file to ingest"
           />
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end gap-2 pt-1">
             <button
               type="submit"
               disabled={!file || isUploading}
               className={cn(
-                "ml-auto flex h-8.5 items-center gap-1.5 rounded-control px-3.5 text-[12.5px] font-medium transition-[background-color,color,transform] duration-200",
+                "flex h-8 items-center justify-center gap-1.5 rounded-control px-4 text-[12.5px] font-medium transition-[background-color,color,transform] duration-200",
                 file && !isUploading
-                  ? "bg-ink text-page enabled:active:scale-[0.97]"
+                  ? "bg-ink text-page enabled:active:scale-[0.97] shadow-btn"
                   : "cursor-not-allowed bg-line-strong text-ink-2 opacity-60",
               )}
             >

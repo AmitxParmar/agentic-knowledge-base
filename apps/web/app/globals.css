@@ -11,6 +11,11 @@
 
 @import "tailwindcss";
 
+@source "../app/**/*.{ts,tsx,js,jsx}";
+@source "../components/**/*.{ts,tsx,js,jsx}";
+@source "../features/**/*.{ts,tsx,js,jsx}";
+@source "../lib/**/*.{ts,tsx,js,jsx}";
+
 /* ── Design tokens — clean dark, Perplexity-style ──────────────────────────── */
 
 :root {
@@ -42,10 +47,10 @@
   --red: #f46a6a;
   --orange: #f5a623;
 
-  /* Radius scale */
-  --radius-card: 16px;
-  --radius-chip: 10px;
-  --radius-control: 8px;
+  /* Radius scale token roots */
+  --val-radius-card: 16px;
+  --val-radius-chip: 10px;
+  --val-radius-control: 8px;
 
   /* Spacing scale */
   --space-1: 4px;
@@ -57,22 +62,20 @@
   --space-12: 48px;
   --space-16: 64px;
 
-  /* Elevation */
-  --shadow-card: 0 2px 8px -2px rgb(0 0 0 / 40%);
-  --shadow-hairline: 0 0 0 1px rgb(255 255 255 / 7%);
-  --shadow-raised: 0 12px 32px -8px rgb(0 0 0 / 55%), 0 0 0 1px rgb(255 255 255 / 6%);
-  --shadow-btn: 0 1px 1.5px rgb(0 0 0 / 30%);
+  /* Elevation token roots */
+  --val-shadow-card: 0 2px 8px -2px rgb(0 0 0 / 40%);
+  --val-shadow-hairline: 0 0 0 1px rgb(255 255 255 / 7%);
+  --val-shadow-raised: 0 12px 32px -8px rgb(0 0 0 / 55%), 0 0 0 1px rgb(255 255 255 / 6%);
+  --val-shadow-btn: 0 1px 1.5px rgb(0 0 0 / 30%);
 
   /* Motion */
   --ease-out-expo: cubic-bezier(0.23, 1, 0.32, 1);
 
-  /* Fonts (wired by next/font in layout.tsx) */
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  /* Font token roots (wired by next/font in layout.tsx) */
+  --val-font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --val-font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
   /* ── Legacy HSL-triplet tokens (CSS-module pages: library/, runs/) ───────── */
-  /* Values mirror the palette above so old modules render coherently until
-     they migrate to Tailwind utilities. Format: H S% L% (no alpha). */
   --background: 0 0% 6%;
   --foreground: 60 9% 94%;
   --panel: 240 4% 10%;
@@ -84,11 +87,9 @@
   --warning: 38 92% 50%;
   --radius: 8px;
 
-  /* Teal in HSL-triplet form for hsl(var(--token)) consumers */
   --accent: 172 61% 44%;
   --ring: 172 61% 50%;
 
-  /* Solid accent hex for the Tailwind layer */
   --accent-solid: #1f9e96;
 
   color-scheme: dark;
@@ -116,28 +117,24 @@
   --color-red: var(--red);
   --color-orange: var(--orange);
 
-  --radius-card: var(--radius-card);
-  --radius-chip: var(--radius-chip);
-  --radius-control: var(--radius-control);
+  --radius-card: var(--val-radius-card);
+  --radius-chip: var(--val-radius-chip);
+  --radius-control: var(--val-radius-control);
 
-  --shadow-card: var(--shadow-card);
-  --shadow-hairline: var(--shadow-hairline);
-  --shadow-raised: var(--shadow-raised);
-  --shadow-btn: var(--shadow-btn);
+  --shadow-card: var(--val-shadow-card);
+  --shadow-hairline: var(--val-shadow-hairline);
+  --shadow-raised: var(--val-shadow-raised);
+  --shadow-btn: var(--val-shadow-btn);
 
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+  --font-sans: var(--val-font-sans);
+  --font-mono: var(--val-font-mono);
 }
 
 /* ── Base resets ───────────────────────────────────────────────────────────── */
-
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
+/* Tailwind v4 preflight (inside @layer base) already zeroes margin/padding
+   and sets border-box for *, ::before, ::after. Do not add an unlayered
+   universal selector here — it outranks @layer utilities and kills
+   spacing classes like px-4 / mx-4. */
 
 html,
 body {

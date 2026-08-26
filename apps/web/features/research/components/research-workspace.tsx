@@ -21,6 +21,7 @@ import { searchableDocumentsExist } from "../research-service";
 
 export function ResearchWorkspace() {
   const [ready, setReady] = useState(false);
+  const [checkingReady, setCheckingReady] = useState(true);
   const [showUpload, setShowUpload] = useState(true);
   const {
     threads,
@@ -47,7 +48,10 @@ export function ResearchWorkspace() {
           setShowUpload(false);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setCheckingReady(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -90,61 +94,22 @@ export function ResearchWorkspace() {
   const toggleUpload = useCallback(() => setShowUpload((v) => !v), []);
 
   return (
-    <main className="flex h-[calc(100vh-52px)] min-h-0">
+    <div className="flex flex-1 min-h-0 w-full overflow-hidden">
       {/* rail */}
-      <div className="flex w-64 shrink-0 flex-col border-r border-line bg-inset/60">
+      <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-inset/50 min-h-0 overflow-hidden">
         <ConversationSidebar
           threads={threads}
           activeId={activeThreadId}
           onSelect={setActiveThread}
           onDelete={removeThread}
+          onNew={startNew}
         />
-        <button
-          type="button"
-          onClick={startNew}
-          className="mx-2 mb-3 flex h-9 items-center gap-1.5 rounded-control px-2.5 text-[13px] font-medium text-ink transition-colors duration-150 hover:bg-hover-2"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          New research
-        </button>
-      </div>
+      </aside>
 
       {/* work pane */}
-      <section className="flex min-h-0 flex-1 flex-col px-4 pt-2">
-        <div className="flex items-center px-2 pb-1">
-          <button
-            type="button"
-            onClick={toggleUpload}
-            aria-expanded={showUpload}
-            className="flex h-7 items-center gap-1.5 rounded-control px-2 text-[12px] text-ink-3 transition-colors duration-150 hover:bg-hover hover:text-ink"
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={showUpload ? "transition-transform duration-200 rotate-90" : "transition-transform duration-200"}
-              aria-hidden="true"
-            >
-              <path d="M9 6l6 6-6 6" />
-            </svg>
-            Ingest source
-          </button>
-          {!ready && (
-            <span className="ml-2 rounded-full bg-orange/15 px-2 py-0.5 text-[11px] font-medium text-orange">
-              Ingest a document before asking
-            </span>
-          )}
-        </div>
-
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-page">
         {showUpload && (
-          <div className="mb-3">
+          <div className="p-4 border-b border-line/30 bg-inset/20 shrink-0">
             <UploadComposer
               onIngestionComplete={() => {
                 setReady(true);
@@ -162,13 +127,15 @@ export function ResearchWorkspace() {
           stages={runState.stages}
           runStatus={runState.status}
           runError={runState.error}
-          disabled={!ready}
+          disabled={checkingReady ? false : !ready}
+          isCheckingReady={checkingReady}
           onQuestion={handleQuestion}
           onRunEvent={handleRunEvent}
           onMessagesChange={(msgs) => syncMessages(activeThreadId, msgs)}
           onToggleUpload={toggleUpload}
+          showUpload={showUpload}
         />
-      </section>
-    </main>
+      </main>
+    </div>
   );
 }

@@ -16,15 +16,13 @@ import { ResearchWorkspace } from "@/features/research/components/research-works
 export default function ResearchPage() {
   const [ready, setReady] = useState(false);
 
+  if (!ready) {
+    return <ColdStartSplash onReady={() => setReady(true)} />;
+  }
+
   return (
-    <>
-      {!ready && <ColdStartSplash onReady={() => setReady(true)} />}
-      <main
-        style={{ display: ready ? "block" : "none" }}
-        aria-hidden={!ready}
-      >
-        <ResearchWorkspace />
-      </main>
-    </>
+    <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+      <ResearchWorkspace />
+    </div>
   );
 }

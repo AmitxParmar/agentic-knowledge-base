@@ -1,17 +1,16 @@
 /**
  * features/research/components/prompt-bar.tsx
  * -------------------------------------------
- * Purpose:    Perplexity-style composer — auto-growing textarea over a
- *             control row: attach (opens the ingestion panel), model badge,
- *             voice mic, and a send/stop action. Enter sends, Shift+Enter
- *             adds a newline.
- * Dependencies: voice-button.tsx (ADR-009 styling)
+ * Purpose:    Compact, responsive prompt composer with inline controls:
+ *             attach, model badge/picker, voice mic, and send/stop action.
+ *             Supports single-line inline layout that smoothly expands into
+ *             multi-line when text wraps.
  * Scope:      Research chat composer.
  */
 
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { VoiceButton } from "./voice-button";
 
@@ -20,46 +19,37 @@ interface PromptBarProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   onStop?: () => void;
-  /** A run is streaming — send becomes stop. */
   busy?: boolean;
-  /** Workspace gate: no searchable documents yet. */
   disabled?: boolean;
   placeholder?: string;
   modelLabel?: string | null;
   onAttachClick?: () => void;
+  className?: string;
 }
 
-function IconButton({
-  label,
-  onClick,
-  disabled,
-  active,
+function Icon({
   children,
+  size = 15,
+  strokeWidth = 1.8,
 }: {
-  label: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  active?: boolean;
   children: React.ReactNode;
+  size?: number;
+  strokeWidth?: number;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      aria-pressed={active}
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-control",
-        "text-ink-3 transition-[background-color,color,transform] duration-150",
-        "enabled:hover:bg-hover enabled:hover:text-ink enabled:active:scale-[0.94]",
-        "disabled:cursor-not-allowed disabled:opacity-40",
-        active && "bg-accent-tint !text-accent-ink",
-      )}
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
     >
       {children}
-    </button>
+    </svg>
   );
 }
 
@@ -73,18 +63,41 @@ export function PromptBar({
   placeholder = "Ask about your documents…",
   modelLabel,
   onAttachClick,
-}: PromptBarProps) {
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  className,
+}: Readonly<PromptBarProps>) {
+  const [expanded, setExpanded] = useState(false);
+  const wide = expanded;
 
-  // Grow with content up to a compact maximum, then scroll internally.
-  useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = "0px";
-    const content = el.scrollHeight;
-    el.style.height = `${Math.min(Math.max(content, 22), 120)}px`;
-    el.style.overflowY = content > 120 ? "auto" : "hidden";
-  }, [value]);
+  const composerAnchorRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const modelRef = useRef<HTMLButtonElement>(null);
+
+  // Auto-grow & layout switch (single inline row vs multi-line wide layout)
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    const controls = controlsRef.current;
+    const measure = measureRef.current;
+    const modelButton = modelRef.current;
+    if (!input || !controls || !measure) return;
+
+    const fixedControlsWidth = 28 * 3 + (modelButton?.offsetWidth ?? 60);
+    const inlineGaps = 4 * 4;
+    const inlineInputWidth = controls.clientWidth - fixedControlsWidth - inlineGaps;
+    const needsFullWidth = value.includes("\n") || measure.offsetWidth + 8 > inlineInputWidth;
+
+    if (needsFullWidth !== expanded) {
+      setExpanded(needsFullWidth);
+    }
+
+    const minHeight = 28;
+    const maxHeight = 120;
+    input.style.height = "0px";
+    const contentHeight = input.scrollHeight;
+    input.style.height = `${Math.min(Math.max(contentHeight, minHeight), maxHeight)}px`;
+    input.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+  }, [value, expanded]);
 
   const canSend = !busy && !disabled && value.trim().length > 0;
 
@@ -96,65 +109,121 @@ export function PromptBar({
   }
 
   return (
-    <div className="rounded-card border border-line bg-surface shadow-card transition-colors duration-150 focus-within:border-line-strong">
-      <label className="sr-only" htmlFor="prompt-input">
-        Ask a question
-      </label>
-      <textarea
-        id="prompt-input"
-        ref={inputRef}
-        rows={1}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={disabled ? "Ingest a source first…" : placeholder}
-        disabled={disabled}
-        className="block max-h-[120px] w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-[14px] leading-[22px] text-ink outline-none [overflow-wrap:anywhere] placeholder:text-ink-3 disabled:cursor-not-allowed"
-      />
-
-      <div className="flex items-center gap-0.5 px-1.5 pb-1.5 pt-1">
-        <IconButton label="Ingest a document" onClick={onAttachClick} disabled={busy}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </IconButton>
-
-        {modelLabel && (
+    <div className={cn("w-full", className)}>
+      <div ref={composerAnchorRef} className="relative">
+        <div
+          className={cn(
+            "relative isolate flex flex-col overflow-hidden border border-line bg-surface shadow-card transition-[border-color,border-radius] duration-150 focus-within:border-line-strong rounded-[14px] gap-1.5 p-1.5",
+          )}
+        >
           <span
-            className="ml-1 hidden h-7 select-none items-center gap-1.5 rounded-chip bg-inset px-2 text-[12px] font-medium text-ink-2 shadow-btn sm:inline-flex"
-            title="Active research model"
+            ref={measureRef}
+            aria-hidden="true"
+            className="pointer-events-none absolute invisible whitespace-pre text-[13px] leading-[18px]"
           >
-            <span className="size-1.5 rounded-full bg-green" aria-hidden="true" />
-            {modelLabel}
+            {value}
           </span>
-        )}
 
-        <span className="min-w-2 flex-1" />
-
-        <VoiceButton disabled={disabled} compact />
-
-        {busy ? (
-          <IconButton label="Stop generating" onClick={onStop}>
-            <span className="size-2.5 rounded-[2px] bg-current" aria-hidden="true" />
-          </IconButton>
-        ) : (
-          <button
-            type="button"
-            aria-label="Send question"
-            title="Send (Enter)"
-            disabled={!canSend}
-            onClick={onSubmit}
+          <div
+            ref={controlsRef}
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-control transition-[background-color,color,transform] duration-200",
-              "enabled:active:scale-[0.94]",
-              canSend ? "bg-ink text-page" : "cursor-not-allowed bg-line-strong text-ink-2 opacity-60",
+              "grid items-end gap-x-1 gap-y-1.5",
+              wide
+                ? "grid-cols-[28px_auto_minmax(0,1fr)_28px_28px]"
+                : "grid-cols-[28px_minmax(0,1fr)_auto_28px_28px]",
             )}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 19V5M5 12l7-7 7 7" />
-            </svg>
-          </button>
-        )}
+            {/* Attach / Ingest button */}
+            <button
+              type="button"
+              aria-label="Add attachments and sources"
+              disabled={busy || disabled}
+              onClick={onAttachClick}
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center justify-self-start rounded-[8px] text-ink-3 transition-[background-color,color,transform] duration-150 enabled:hover:bg-hover enabled:hover:text-ink enabled:active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed",
+                wide ? "col-start-1 row-start-2" : "col-start-1 row-start-1",
+              )}
+            >
+              <Icon size={16} strokeWidth={2}>
+                <path d="M12 5v14M5 12h14" />
+              </Icon>
+            </button>
+
+            {/* Input textarea */}
+            <textarea
+              id="prompt-input"
+              ref={inputRef}
+              rows={1}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={disabled ? "Ingest a source first…" : placeholder}
+              disabled={disabled}
+              aria-label="Prompt"
+              className={cn(
+                "min-h-7 min-w-0 w-full resize-none bg-transparent px-1 py-[5px] text-[13px] leading-[18px] text-ink outline-none [overflow-wrap:anywhere] placeholder:text-ink-3 disabled:cursor-not-allowed",
+                wide ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1",
+              )}
+            />
+
+            {/* Active Model Badge */}
+            {modelLabel && (
+              <button
+                ref={modelRef}
+                type="button"
+                aria-label="Active model"
+                className={cn(
+                  "flex h-7 shrink-0 items-center gap-1.5 rounded-[8px] bg-inset px-2 text-[12px] font-medium text-ink-2 shadow-btn select-none pointer-events-none",
+                  wide ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1",
+                )}
+              >
+                <span className="size-1.5 rounded-full bg-green" aria-hidden="true" />
+                {modelLabel}
+              </button>
+            )}
+
+            {/* Dictation Voice Button */}
+            <div
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center",
+                wide ? "col-start-4 row-start-2" : "col-start-4 row-start-1",
+              )}
+            >
+              <VoiceButton disabled={disabled} compact />
+            </div>
+
+            {/* Send or Stop button */}
+            {busy ? (
+              <button
+                type="button"
+                aria-label="Stop generating"
+                onClick={onStop}
+                className={cn(
+                  "flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-ink text-page transition-[background-color,color,transform] duration-150 active:scale-[0.94]",
+                  wide ? "col-start-5 row-start-2" : "col-start-5 row-start-1",
+                )}
+              >
+                <span className="size-2.5 rounded-[2px] bg-current" aria-hidden="true" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                aria-label="Send"
+                disabled={!canSend}
+                onClick={onSubmit}
+                className={cn(
+                  "flex size-7 shrink-0 items-center justify-center rounded-[8px] transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94]",
+                  canSend ? "bg-ink text-surface shadow-btn" : "cursor-not-allowed bg-line-strong text-ink-2 opacity-60",
+                  wide ? "col-start-5 row-start-2" : "col-start-5 row-start-1",
+                )}
+              >
+                <Icon size={16} strokeWidth={2.4}>
+                  <path d="M12 19V5M5 12l7-7 7 7" />
+                </Icon>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
