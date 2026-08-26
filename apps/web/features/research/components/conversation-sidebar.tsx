@@ -16,6 +16,7 @@ interface ConversationSidebarProps {
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onNew: () => void;
+  hideHeader?: boolean;
 }
 
 export function ConversationSidebar({
@@ -24,31 +25,34 @@ export function ConversationSidebar({
   onSelect,
   onDelete,
   onNew,
+  hideHeader = false,
 }: ConversationSidebarProps) {
   return (
     <aside className="flex h-full min-h-0 flex-1 flex-col select-none" aria-label="Conversation history">
       {/* header */}
-      <div className="flex items-center justify-between border-b border-line/40 px-3.5 py-2.5 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-[11.5px] font-semibold uppercase tracking-wider text-ink-3">
-            History
-          </span>
-          <span className="rounded-full bg-inset px-2 py-0.5 text-[11px] font-medium text-ink-3 tabular-nums shadow-hairline">
-            {threads.length}
-          </span>
+      {!hideHeader && (
+        <div className="flex items-center justify-between border-b border-line/40 px-3.5 py-2.5 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[11.5px] font-semibold uppercase tracking-wider text-ink-3">
+              History
+            </span>
+            <span className="rounded-full bg-inset px-2 py-0.5 text-[11px] font-medium text-ink-3 tabular-nums shadow-hairline">
+              {threads.length}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onNew}
+            title="Start new research thread"
+            className="flex h-7 items-center gap-1 rounded-control bg-surface-raised px-2.5 text-[12px] font-medium text-ink transition-colors duration-150 hover:bg-hover hover:text-accent shadow-btn"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span>New</span>
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onNew}
-          title="Start new research thread"
-          className="flex h-7 items-center gap-1 rounded-control bg-surface-raised px-2.5 text-[12px] font-medium text-ink transition-colors duration-150 hover:bg-hover hover:text-accent shadow-btn"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          <span>New</span>
-        </button>
-      </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
         <ul role="listbox" aria-label="Research conversations" className="flex flex-col gap-1">

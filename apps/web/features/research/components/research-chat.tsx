@@ -54,6 +54,7 @@ export function ResearchChat({
   onMessagesChange,
   onToggleUpload,
   showUpload = false,
+  onOpenHistory,
 }: {
   threadId: string;
   initialMessages: UIMessage[];
@@ -68,6 +69,7 @@ export function ResearchChat({
   onMessagesChange: (messages: UIMessage[]) => void;
   onToggleUpload?: () => void;
   showUpload?: boolean;
+  onOpenHistory?: () => void;
 }) {
   const { messages, sendMessage, isLoading, error, stop, clear } = useResearchChat(
     threadId,
@@ -129,9 +131,21 @@ export function ResearchChat({
     <section className="flex min-h-0 flex-1 flex-col" aria-label="Research conversation">
       {/* header */}
       <header className="flex items-center gap-3 border-b border-line/40 px-4 md:px-8 py-2.5 shrink-0 bg-surface/30">
-        <div className="flex items-center gap-2">
+        {onOpenHistory && (
+          <button
+            type="button"
+            onClick={onOpenHistory}
+            aria-label="Open conversation history"
+            className="flex size-8 shrink-0 items-center justify-center rounded-control text-ink-2 hover:bg-hover hover:text-ink md:hidden -ml-1"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
+        )}
+        <div className="flex items-center gap-2 min-w-0">
           <h2 className="text-[13px] font-semibold text-ink">Thread</h2>
-          <span className="font-mono text-[12px] text-ink-3">· {threadId}</span>
+          <span className="font-mono text-[12px] text-ink-3 truncate">· {threadId.slice(0, 8)}</span>
         </div>
 
         <div className="ml-auto flex items-center gap-2">
