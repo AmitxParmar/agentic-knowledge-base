@@ -41,14 +41,47 @@ def test_explicit_model_keeps_openrouter_fallback(monkeypatch: pytest.MonkeyPatc
 
     primary, fallback = _resolve_models("groq/llama-3.3-70b-versatile")
     assert primary == "groq/llama-3.3-70b-versatile"
-    assert fallback.startswith("openrouter/"), "explicit model must still retain an OpenRouter fallback"
+    assert fallback.startswith("openrouter/"), (
+        "explicit model must still retain an OpenRouter fallback"
+    )
+
+
+def test_small_route_uses_configured_small_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_PROVIDER", "groq")
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_SMALL_MODEL", "llama-3.1-8b-instant")
+
+    primary, _ = _resolve_models(None, route="small")
+    assert primary == "groq/llama-3.1-8b-instant"
+
+
+def test_verification_route_uses_configured_small_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_PROVIDER", "groq")
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_SMALL_MODEL", "llama-3.1-8b-instant")
+
+    primary, _ = _resolve_models(None, route="verification")
+    assert primary == "groq/llama-3.1-8b-instant"
+
+
+def test_synthesis_route_uses_override_or_primary_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_PROVIDER", "groq")
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_SYNTHESIS_MODEL", "")
+
+    primary, _ = _resolve_models(None, route="synthesis")
+    assert primary == "groq/llama-3.3-70b-versatile"
+
+    monkeypatch.setattr(settings, "MODEL_GATEWAY_SYNTHESIS_MODEL", "llama-3.3-70b-versatile-custom")
+    primary, _ = _resolve_models(None, route="synthesis")
+    assert primary == "groq/llama-3.3-70b-versatile-custom"
 
 
 def test_rate_limit_detection_by_status_code() -> None:
     class FakeRateLimit(Exception):
         status_code = 429
 
-    assert _is_rate_limit(FakeRateLimit("rate limit exceeded")), "HTTP 429 must classify as rate limit"
+    assert _is_rate_limit(FakeRateLimit("rate limit exceeded")), (
+        "HTTP 429 must classify as rate limit"
+    )
 
 
 def test_rate_limit_detection_by_message() -> None:
@@ -64,7 +97,9 @@ def test_rate_limit_classified_as_rate_limit_error() -> None:
 
     error = _classify_provider_error(FakeRateLimit("rate limit"))
     assert isinstance(error, RateLimitError)
-    assert not isinstance(error, ProviderError), "rate limit must not collapse into a generic provider error"
+    assert not isinstance(error, ProviderError), (
+        "rate limit must not collapse into a generic provider error"
+    )
 
 
 def test_generic_failure_classified_as_provider_error() -> None:

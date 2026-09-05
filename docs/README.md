@@ -25,7 +25,7 @@ before you write any code.
 | `AGENTS.md` | Rules for AI coding agents working in this repo |
 | `conventions.md` | Folder structure, naming, approved libraries, patterns |
 | `schema.md` | Core entities, relationships, ownership boundaries |
-| `docs/adr/*` | Why LangGraph, Turbovec, and the Model Gateway pattern were chosen |
+| `docs/adr/*` | Why LangGraph, pgvector (Turbovec replaced), and the Model Gateway pattern were chosen |
 | `docs/specs/*` | Contract (inputs/outputs/tools/success criteria) for each MVP component |
 | `docs/ui/ux.md` | What the user sees, and the rule against exposing reasoning |
 | `docs/architecture.html` | Full V1 system diagram — interactive, click any node |
@@ -43,10 +43,10 @@ before you write any code.
 | Frontend | Next.js |
 | API | FastAPI (REST + WebSocket) |
 | Orchestration | LangGraph — single Research Agent node |
-| Vector retrieval | Turbovec |
+| Vector retrieval | pgvector (Turbovec replaced) |
 | Relational store / source of truth | PostgreSQL |
 | Local model serving | LM Studio (OpenAI-compatible), Qwen3 4B or Gemma 3 4B |
-| Embeddings | BGE-M3 (self-hosted) |
+| Embeddings | Cohere embed-v3 |
 | Rerank | BGE-Reranker-v2-m3 (self-hosted) |
 | Observability | Langfuse |
 

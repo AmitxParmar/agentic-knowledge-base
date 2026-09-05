@@ -152,7 +152,7 @@ async def _hyde_expand(question: str) -> str:
         {"role": "user", "content": question},
     ]
     try:
-        expanded = await complete(prompt, temperature=0.1, max_tokens=256)
+        expanded = await complete(prompt, route="small", temperature=0.1, max_tokens=256)
     except Exception:
         logger.debug("HyDE expansion failed, falling back to original question", exc_info=True)
         return question
@@ -284,9 +284,7 @@ _CONTEXT_MAX_CHARS = 1200
 _CONTEXT_NEIGHBOR_RADIUS = 1
 
 
-async def _attach_parent_context(
-    selected: list[RetrievedChunk], session: AsyncSession
-) -> None:
+async def _attach_parent_context(selected: list[RetrievedChunk], session: AsyncSession) -> None:
     """Merge adjacent-sibling text into each selected chunk (in place).
 
     A rerank hit is often a fragment of its section. Pulling the chunk's

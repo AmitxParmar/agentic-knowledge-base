@@ -86,3 +86,18 @@ answer = await complete(messages=[{"role": "user", "content": "..."}])
 ```
 
 Fallback chain: Groq → OpenRouter. Switch primary via `MODEL_GATEWAY_PROVIDER` env var.
+
+### Model routing
+
+The gateway routes planning and HyDE query expansion to the lower-cost model,
+then uses the primary model for the final cited answer. Configure these values
+when the provider's defaults do not suit the deployment:
+
+```dotenv
+MODEL_GATEWAY_SMALL_MODEL=llama-3.1-8b-instant
+# Optional; empty uses MODEL_GATEWAY_MODEL for final synthesis.
+MODEL_GATEWAY_SYNTHESIS_MODEL=
+```
+
+All model names are interpreted on `MODEL_GATEWAY_PROVIDER`. The existing
+OpenRouter fallback remains active for every route.

@@ -60,6 +60,7 @@ class AgentState(TypedDict):
     plan: list[str]
     messages: list[dict[str, Any]]
     citations: list[dict[str, Any]]
+    draft_answer: str | None
     answer: str | None
     iterations: int
     tokens_used: int
@@ -143,6 +144,7 @@ async def _planner_node(state: AgentState, config: RunnableConfig) -> dict[str, 
                     {"role": "system", "content": _PLANNER_PROMPT},
                     {"role": "user", "content": state["question"]},
                 ],
+                route="small",
                 temperature=0.0,
                 max_tokens=200,
             ),
@@ -181,7 +183,7 @@ async def _researcher_node(state: AgentState, config: RunnableConfig) -> dict[st
 
     if not response.tool_calls:
         return {
-            "answer": response.content or "",
+            "draft_answer": response.content or "",
             "messages": state["messages"]
             + [{"role": "assistant", "content": response.content or ""}],
             "tokens_used": state["tokens_used"] + _msg_tokens(response),
@@ -249,12 +251,11 @@ async def _researcher_node(state: AgentState, config: RunnableConfig) -> dict[st
 
 
 async def _synthesize_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-    """Final-answer node: pass-through, or forced best-effort generation.
+    """Final-answer node: generate the client-facing answer with the synthesis model.
 
-    The researcher normally writes the answer itself when it stops calling
-    tools. When instead the iteration cap exhausted the loop with no answer,
-    this node makes exactly one grounded generation call (no tools) from
-    whatever evidence was gathered — same prompt the inline path used.
+    The researcher writes a draft after it stops calling tools. This node
+    always produces the final wording with the synthesis route. If the
+    iteration cap is exhausted, it synthesizes directly from gathered evidence.
     """
     del config
     if state.get("answer") is not None:
@@ -267,13 +268,14 @@ async def _synthesize_node(state: AgentState, config: RunnableConfig) -> dict[st
                 {
                     "role": "user",
                     "content": (
-                        "You have reached the maximum number of searches. "
-                        "Write the best answer you can from the gathered evidence. "
-                        "If evidence is insufficient, say so."
+                        "Write the final answer using only the gathered evidence. "
+                        "Preserve citation markers such as [1] where they support claims. "
+                        "If evidence is insufficient, say so clearly."
                     ),
                 }
             ],
             tools=None,
+            route="synthesis",
             max_tokens=2048,
         ),
         timeout=settings.AGENT_ITERATION_TIMEOUT,
@@ -293,7 +295,7 @@ def _msg_tokens(response: Any) -> int:
 def _route_after_research(state: AgentState) -> str:
     """Route to synthesize once an answer exists, iterations are spent, or
     the run's token budget is exhausted (maturity plan §7: hard cost caps)."""
-    if state.get("answer") is not None:
+    if state.get("answer") is not None or state.get("draft_answer") is not None:
         return "synthesize"
     if state["iterations"] >= MAX_ITERATIONS:
         return "synthesize"
@@ -405,6 +407,7 @@ async def run_agent(
         "plan": [],
         "messages": messages,
         "citations": [],
+        "draft_answer": None,
         "answer": None,
         "iterations": 0,
         "tokens_used": 0,

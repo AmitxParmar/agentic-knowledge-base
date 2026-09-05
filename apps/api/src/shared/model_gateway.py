@@ -21,7 +21,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 import litellm
 import logfire
@@ -35,6 +35,8 @@ from src.shared.retry import (
 )
 
 logger = logging.getLogger(__name__)
+
+ModelRoute = Literal["default", "small", "synthesis", "verification"]
 
 
 # ── Typed errors ─────────────────────────────────────────────────────────────
@@ -133,7 +135,11 @@ _sync_env("OPENROUTER_API_KEY", settings.MODEL_GATEWAY_OPENROUTER_API_KEY)
 # ── Core LLM call ───────────────────────────────────────────────────────────
 
 
-def _resolve_models(model: str | None) -> tuple[str, str]:
+def _resolve_models(
+    model: str | None,
+    *,
+    route: ModelRoute = "default",
+) -> tuple[str, str]:
     """
     Map caller-supplied or Settings-derived model strings to LiteLLM names.
 
@@ -141,14 +147,23 @@ def _resolve_models(model: str | None) -> tuple[str, str]:
       - "groq/llama-3.3-70b-versatile"
       - "openrouter/mistralai/mistral-7b-instruct"
 
-    Returns (primary_model, fallback_model). A caller may pass a fully-qualified
-    "provider/model" string, in which case that becomes primary and the default
-    OpenRouter model is used as fallback.
+    Returns (primary_model, fallback_model). An explicit model takes precedence
+    over a route. Otherwise, small routes use MODEL_GATEWAY_SMALL_MODEL and the
+    synthesis route uses MODEL_GATEWAY_SYNTHESIS_MODEL (or the primary model
+    when no override is configured). Every route retains the existing
+    OpenRouter fallback for availability.
     """
     if model is not None:
         return model, f"openrouter/{settings.MODEL_GATEWAY_OPENROUTER_MODEL}"
 
-    primary = f"{settings.MODEL_GATEWAY_PROVIDER}/{settings.MODEL_GATEWAY_MODEL}"
+    if route in ("small", "verification"):
+        selected_model = settings.MODEL_GATEWAY_SMALL_MODEL
+    elif route == "synthesis":
+        selected_model = settings.MODEL_GATEWAY_SYNTHESIS_MODEL or settings.MODEL_GATEWAY_MODEL
+    else:
+        selected_model = settings.MODEL_GATEWAY_MODEL
+
+    primary = f"{settings.MODEL_GATEWAY_PROVIDER}/{selected_model}"
     fallback = f"openrouter/{settings.MODEL_GATEWAY_OPENROUTER_MODEL}"
     return primary, fallback
 
@@ -158,6 +173,7 @@ async def _call_llm(
     *,
     tools: list[dict[str, Any]] | None = None,
     model: str | None = None,
+    route: ModelRoute = "default",
     temperature: float = 0.2,
     max_tokens: int = 2048,
 ) -> GatewayResponse:
@@ -171,7 +187,7 @@ async def _call_llm(
     Returns a GatewayResponse with parsed tool calls; raises RuntimeError if
     both providers fail, mirroring the old behavior so callers need no changes.
     """
-    primary_model, fallback_model = _resolve_models(model)
+    primary_model, fallback_model = _resolve_models(model, route=route)
 
     # Build kwargs — only pass `tools` when the caller supplies any. Omitting
     # it entirely (rather than passing []) prevents the model from calling tools.
@@ -189,11 +205,12 @@ async def _call_llm(
         "generate-response",
         as_type="generation",
         input=messages,
-        metadata={"has_tools": tools is not None, "temperature": temperature},
+        metadata={"has_tools": tools is not None, "route": route, "temperature": temperature},
     ) as generation:
         with logfire.span(
             "model_gateway.call",
             model=primary_model,
+            route=route,
             has_tools=tools is not None,
         ):
 
@@ -280,6 +297,7 @@ async def _call_llm(
         logfire.info(
             "model_gateway.call.ok",
             model=primary_model,
+            route=route,
             tokens_used=resp.usage.total_tokens if resp.usage else None,
             tool_calls=len(parsed_calls) if parsed_calls else 0,
         )
@@ -330,6 +348,7 @@ async def complete(
     messages: list[dict[str, str]],
     *,
     model: str | None = None,
+    route: ModelRoute = "default",
     temperature: float = 0.2,
     max_tokens: int = 2048,
 ) -> str:
@@ -340,6 +359,7 @@ async def complete(
     resp = await _call_llm(
         messages,
         model=model,
+        route=route,
         temperature=temperature,
         max_tokens=max_tokens,
     )
@@ -351,6 +371,7 @@ async def complete_with_tools(
     *,
     tools: list[dict[str, Any]] | None = None,
     model: str | None = None,
+    route: ModelRoute = "default",
     temperature: float = 0.2,
     max_tokens: int = 2048,
 ) -> GatewayResponse:
@@ -365,6 +386,7 @@ async def complete_with_tools(
         messages,
         tools=tools,
         model=model,
+        route=route,
         temperature=temperature,
         max_tokens=max_tokens,
     )

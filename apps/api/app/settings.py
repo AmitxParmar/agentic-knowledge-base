@@ -34,7 +34,21 @@ class Settings(BaseSettings):
     )
     MODEL_GATEWAY_MODEL: str = Field(
         default="llama-3.3-70b-versatile",
-        description="Model name on the active provider",
+        description="Primary model name on the active provider; used for final synthesis",
+    )
+    MODEL_GATEWAY_SMALL_MODEL: str = Field(
+        default="llama-3.1-8b-instant",
+        description=(
+            "Lower-cost model name on the active provider; used for planning, "
+            "query expansion, and verification"
+        ),
+    )
+    MODEL_GATEWAY_SYNTHESIS_MODEL: str = Field(
+        default="",
+        description=(
+            "Optional final-synthesis model override on the active provider; "
+            "empty uses MODEL_GATEWAY_MODEL"
+        ),
     )
 
     # Groq

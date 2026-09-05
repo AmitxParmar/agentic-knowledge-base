@@ -189,7 +189,9 @@ job = IngestionJob(
 ```python
 vector_index = get_vector_index()
 for chunk_row, vector in chunk_rows:
-    vector_index.upsert(chunk_row.turbovec_id, vector)
+    # Write embedding vector to pgvector column
+    # Chunk already has embedding written during ingestion pipeline
+    pass  # embedding stored in chunks.embedding via migration 9f2a1c3b4e5d
 ```
 
 - [ ] **Step 5: Add a tiny dev seed script for the auth stub UUIDs**
@@ -243,7 +245,8 @@ hydrated.append(
 - [ ] **Step 3: Keep BM25 simple and portable for now instead of adding a migration-only dependency**
 
 ```python
-SELECT c.turbovec_id,
+SELECT c.id,
+       c.embedding,
        ts_rank_cd(to_tsvector('english', c.text), plainto_tsquery('english', :query)) AS rank
 ```
 

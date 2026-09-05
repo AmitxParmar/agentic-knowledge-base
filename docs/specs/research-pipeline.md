@@ -57,10 +57,13 @@ Unchanged ReAct loop (see `docs/specs/researcher.md`). The forced
 best-effort completion moves out of this node into synthesize.
 
 ### Synthesize node
-- Pass-through when the researcher already wrote `answer`.
-- Otherwise (iteration cap hit): one grounded generation call without
-  tools using the exact prompt the inline path used before — identical
-  behavior, owned by one node.
+- The Researcher may write a draft, but this node always generates the
+  client-facing answer without tools using the `synthesis` model route.
+- The `synthesis` route uses `MODEL_GATEWAY_SYNTHESIS_MODEL` when configured,
+  otherwise `MODEL_GATEWAY_MODEL`; planner and query expansion use
+  `MODEL_GATEWAY_SMALL_MODEL`.
+- When the iteration cap is hit, it generates directly from the gathered
+  evidence.
 
 ## Invariants
 

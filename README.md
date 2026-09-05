@@ -108,8 +108,7 @@ sequenceDiagram
   W->>C: semantic / code chunks
   W->>PG: embedding
   W->>E: embed_texts
-  W->>PG: INSERT chunks
-  W->>TV: upsert by chunk_id
+  W->>PG: INSERT chunks (text + embedding + tsv)
   W->>PG: stage = done
 ```
 
@@ -174,6 +173,7 @@ erDiagram
   chunks {
     uuid id
     text text
+    vector embedding
     string turbovec_id
   }
   research_runs {
@@ -184,7 +184,7 @@ erDiagram
   }
 ```
 
-Postgres is authoritative for chunk text and metadata. The vector index is keyed by `chunk_id` and can be rebuilt from Postgres (see ADR-002).
+Postgres is authoritative for chunk text, metadata, and vectors. `chunks.embedding` (pgvector) is the index — no separate vector store to sync or rebuild (see ADR-002 addendum).
 
 ## API surface (MVP)
 
@@ -192,10 +192,17 @@ Postgres is authoritative for chunk text and metadata. The vector index is keyed
 | --- | --- | --- |
 | `POST` | `/api/ingestion/upload` | Upload file, enqueue job |
 | `GET` | `/api/ingestion/jobs/{id}` | Poll ingestion stage |
+| `GET` | `/api/ingestion/documents` | List documents |
+| `DELETE` | `/api/ingestion/documents/{id}` | Delete document + chunks, invalidate caches |
 | `POST` | `/api/research/chat` | AG-UI SSE stream: stages → answer → citations (primary) |
 | `WS` | `/api/research/ws` | Legacy question → progress → answer (manual testing) |
 | `GET` | `/api/research/runs/{id}` | Fetch a completed run |
-| `GET` | `/health` | Liveness |
+| `GET` | `/api/conversations` | List threads |
+| `POST` | `/api/conversations` | Create thread |
+| `GET` | `/api/conversations/{id}` | Get thread + runs |
+| `POST` | `/api/research/voice` | Voice STT → agent → TTS |
+| `GET` | `/healthz` | Liveness |
+| `GET` | `/readyz` | Readiness (DB + Redis + Cohere probe) |
 
 ## Quick start
 

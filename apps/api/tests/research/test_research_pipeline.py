@@ -62,6 +62,7 @@ def _state(**overrides: Any) -> AgentState:
         "plan": [],
         "messages": [{"role": "user", "content": "What is the refund policy?"}],
         "citations": [],
+        "draft_answer": None,
         "answer": None,
         "iterations": 0,
         "tokens_used": 0,
@@ -70,9 +71,15 @@ def _state(**overrides: Any) -> AgentState:
 
 
 async def test_planner_injects_plan_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_complete(*args: object, **kwargs: Any) -> str:
+        captured.update(kwargs)
+        return '["refund window", "EU exceptions"]'
+
     monkeypatch.setattr(
         "src.research.agent.complete",
-        AsyncMock(return_value='["refund window", "EU exceptions"]'),
+        fake_complete,
     )
 
     result = await _planner_node(_state(), RunnableConfig(configurable={}))
@@ -83,6 +90,7 @@ async def test_planner_injects_plan_message(monkeypatch: pytest.MonkeyPatch) -> 
     ]
     assert len(plan_messages) == 1
     assert "- refund window" in plan_messages[0]["content"]
+    assert captured["route"] == "small"
 
 
 async def test_planner_falls_back_on_provider_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -125,6 +133,7 @@ async def test_synthesize_generates_when_loop_exhausted(monkeypatch: pytest.Monk
     async def fake_complete_with_tools(messages: list, tools: Any, **kwargs: object) -> Any:
         captured["tools"] = tools
         captured["last_message"] = messages[-1]
+        captured.update(kwargs)
         return SimpleNamespace(
             content="Best-effort answer.", usage=SimpleNamespace(total_tokens=42)
         )
@@ -137,7 +146,8 @@ async def test_synthesize_generates_when_loop_exhausted(monkeypatch: pytest.Monk
     assert result["answer"] == "Best-effort answer."
     assert result["tokens_used"] == 42
     assert captured["tools"] is None
-    assert "maximum number of searches" in captured["last_message"]["content"]
+    assert captured["route"] == "synthesis"
+    assert "final answer" in captured["last_message"]["content"]
 
 
 # ── routing ───────────────────────────────────────────────────────────────────
@@ -145,6 +155,10 @@ async def test_synthesize_generates_when_loop_exhausted(monkeypatch: pytest.Monk
 
 def test_routes_to_synthesize_on_answer() -> None:
     assert _route_after_research(_state(answer="done")) == "synthesize"
+
+
+def test_routes_to_synthesize_on_researcher_draft() -> None:
+    assert _route_after_research(_state(draft_answer="draft")) == "synthesize"
 
 
 def test_routes_to_synthesize_on_iteration_cap() -> None:
@@ -222,13 +236,13 @@ def test_full_graph_produces_cited_answer(monkeypatch: pytest.MonkeyPatch) -> No
     assert final["plan"] == ["refund window"]
     assert any("Search plan" in str(m.get("content")) for m in final["messages"])
 
-    # Evidence was retrieved, cited, and answered through synthesize's
-    # pass-through (the researcher wrote the answer itself).
+    # Evidence was retrieved, cited, drafted by the researcher, then finalized
+    # through the synthesis route.
     assert len(final["citations"]) == 1
     assert final["citations"][0]["chunk_id"] == chunk.chunk_id
     assert final["answer"] == "Refunds take 30 days [1]."
     assert final["iterations"] == 1
-    assert final["tokens_used"] == 35  # 15 (tool turn) + 20 (answer turn)
+    assert final["tokens_used"] == 55  # 15 (tool turn) + 20 (draft) + 20 (final)
 
     # Fixed ux.md vocabulary only.
     assert stages == [ResearchStage.SEARCHING, ResearchStage.REVIEWING]

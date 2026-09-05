@@ -356,9 +356,9 @@
   </g>
   <g class="node gate" data-k="breaker">
     <rect x="780" y="380" width="230" height="80"/>
-    <text class="k" x="798" y="403">iteration cap only · not a service</text>
-    <text class="t" x="798" y="424">Iteration Cap</text>
-    <text class="m" x="798" y="446">MAX_ITERATIONS = 5 · constant</text>
+    <text class="k" x="798" y="403">iteration + token budget</text>
+    <text class="t" x="798" y="424">Budgets & Caps</text>
+    <text class="m" x="798" y="446">5 iters · 60k tokens · 60s</text>
   </g>
   <g class="node planned" data-k="confidence">
     <rect x="530" y="380" width="230" height="80"/>
@@ -492,11 +492,11 @@
     <text class="t" x="1028" y="517">Run Checkpoints</text>
     <text class="m" x="1028" y="537">langgraph PostgresSaver · resume</text>
   </g>
-  <g class="node planned" data-k="ratelimit">
+  <g class="node" data-k="ratelimit">
     <rect x="290" y="270" width="170" height="80"/>
-    <text class="k" x="308" y="296">planned · gap</text>
-    <text class="t" x="308" y="317">Rate Limit</text>
-    <text class="m" x="308" y="337">per-workspace · backpressure</text>
+    <text class="k" x="308" y="296">implemented · Redis</text>
+    <text class="t" x="308" y="317">Rate Limit + Caches</text>
+    <text class="m" x="308" y="337">5 up / 20 chat per min</text>
   </g>
 
   <!-- NODES: observability -->
@@ -563,11 +563,11 @@ const DETAIL = {
   "langgraph": { t:"LangGraph Runtime", m:"state graph", b:"The ReAct researcher loop lives here as a stateful graph — thought/action/observation with checkpoint recovery. Entry point for every research run." },
   "decomposer": { t:"Query Decomposer", m:"planned · needs spec", b:"Will split complex questions into focused sub-queries, fan them out through retrieval in parallel, then synthesize. Needs a spec under <code>docs/specs/</code> before implementation." },
   "researcher": { t:"Researcher Agent", m:"ReAct loop · ≤5 iterations", b:"Main agent. Calls the <code>retrieve_evidence</code> tool up to 5 times, gathering cited chunks, then synthesizes a final answer. Every claim must trace back to a retrieved chunk." },
-  "breaker": { t:"Iteration Cap", m:"bounded execution · constant", b:"A hard <code>MAX_ITERATIONS = 5</code> in <code>research/agent.py</code>, not a standalone service. Prevents runaway ReAct loops. There is <b>no token/cost cap yet</b> — that's the Cost Metering gap on the right." },
+  "breaker": { t:"Iteration + Token Budget", m:"bounded execution", b:"Hard caps in <code>research/agent.py</code>: <code>MAX_ITERATIONS = 5</code> + <code>AGENT_TOKEN_BUDGET=60k</code> + <code>AGENT_RUN_TIMEOUT=60s</code> route to synthesis. <code>AGENT_ITERATION_TIMEOUT=30s</code> per call. Prevents runaway loops and cost." },
   "idem": { t:"Idempotency + Dedup", m:"planned · ingestion gap", b:"<b>Not implemented.</b> Uploads are not idempotent (no client key on <code>POST /documents</code>) and there's no SHA-256 content-hash dedup — re-uploading a file re-embeds it. Fix: idempotency key + per-workspace hash, <code>enqueue_job(_job_id=hash)</code>." },
   "dlq": { t:"Retries + DLQ", m:"planned · ingestion gap", b:"<b>Not implemented.</b> The arq job is enqueued with no <code>max_tries</code>/backoff, so a transient Cohere 500 permanently fails the document. Fix: <code>max_tries=3</code> + a failed-job surface for re-enqueue." },
   "ckpt": { t:"Run Checkpoints", m:"planned · research gap", b:"<b>No LangGraph checkpointer.</b> Only the final answer + citations persist (<code>research_runs</code>/<code>citations</code> tables); intermediate messages are lost on crash and runs can't resume. Fix: LangGraph <code>PostgresSaver</code> keyed by run id — <code>ADR-001</code> already promises this." },
-  "ratelimit": { t:"Rate Limit / Cost", m:"planned · gateway gap", b:"<b>No app-level rate limiting or budget cap.</b> One user can fan requests into provider 429s; tokens are logged (<code>model_gateway</code>) but never persisted or capped. Fix: per-workspace limiter + a per-run token budget (needs an ADR for the limiter lib)." },
+  "ratelimit": { t:"Rate Limit + Budgets", m:"implemented · Redis", b:"Redis fixed-window limiter: 5 uploads/min + 20 chats/min per IP (<code>src/shared/rate_limit.py</code>). Per-run token budget <code>AGENT_TOKEN_BUDGET</code> caps cost; retrieval/semantic caches reduce provider calls." },
   "confidence": { t:"Confidence Scorer", m:"planned · needs spec", b:"Will score each claim against its supporting citation strength, flagging weakly-sourced assertions before they reach the user. Needs a spec under <code>docs/specs/</code>." },
   "selfcorrect": { t:"Self-Correction", m:"planned · needs spec", b:"When confidence is low on any claim, will trigger another targeted retrieval pass — a second chance to find supporting evidence before answering. Bounded by the Circuit Breaker." },
   "critic": { t:"Critic", m:"planned · needs spec", b:"Will check draft answers against actual retrieved evidence and flag ungrounded claims back to the researcher. Needs justification against <code>PRD.md</code> Non-Goals before it ships." },
@@ -580,7 +580,7 @@ const DETAIL = {
   "openrouter": { t:"OpenRouter", m:"fallback models", b:"Fallback for when Groq is saturated or a specific experiment needs a different model. Configured via env var, not code." },
   "cohere": { t:"Cohere API", m:"embed-english-v3.0 · rerank-english-v3.0", b:"Cloud embeddings and reranking endpoint. 1024-dim vectors, high-quality semantic retrieval without running GPU locally." },
   "neon": { t:"Neon Postgres", m:"serverless postgres", b:"Documents table, chunks with vectors, tsvector column for full-text search, GIN indexes, and citation links. Full system of record in one managed DB." },
-  "redis": { t:"Upstash Redis", m:"TLS · rediss://", b:"Backs the arq job queue — serverless, no idle cost, connects over TLS <code>rediss://</code>. <b>That's all it does today.</b> The 'sessions' cache and any semantic/query cache are unimplemented; the only state here is queued and in-flight ingestion jobs." },
+  "redis": { t:"Upstash Redis", m:"TLS · rediss://", b:"Backs arq queue + rate limiting + retrieval cache (600s) + semantic answer cache (1h, cos≥0.85, ADR-007). Serverless, no idle cost, TLS <code>rediss://</code>. Workspace-indexed, corpus-change invalidation." },
   "r2": { t:"Backblaze B2", m:"s3-compatible objects", b:"Raw uploaded files stored durably. S3-compatible API via boto3, zero egress to Render." },
   "worker": { t:"arq Worker", m:"same container as app", b:"Async background worker handling uploads, chunking, embedding, and vector writes — kept off the request path so HTTP responses stay fast." },
   "chunker": { t:"Chunker", m:"split + tsvector", b:"Splits documents into retrievable chunks, attaches metadata, and prepares text for the tsvector column written at insert time." },
