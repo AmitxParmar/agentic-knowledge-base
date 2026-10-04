@@ -31,11 +31,14 @@ from pathlib import Path
 from typing import Any
 
 from src.eval.metrics import (
+    citation_correctness,
+    citation_coverage,
     delta_ndcg_at_k,
     mrr,
     ndcg_at_k,
     precision_at_k,
     recall_at_k,
+    ungrounded_sentence_ratio,
 )
 
 # rank_fn(question, workspace_id) -> (fusion_order_ids, reranked_order_ids)
@@ -46,6 +49,15 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "recall_at_k": 0.5,
     "ndcg_at_k": 0.4,
 }
+
+# CI gate defaults for answer-level metrics. Unlike retrieval metrics, the
+# ungrounded-sentence gate is a *maximum*: fewer ungrounded sentences is better.
+DEFAULT_ANSWER_THRESHOLDS: dict[str, float] = {
+    "citation_coverage": 0.8,
+    "ungrounded_sentence_ratio": 0.5,
+    "citation_correctness": 1.0,
+}
+_ANSWER_MAXIMIZE: set[str] = {"ungrounded_sentence_ratio"}
 
 
 @dataclass(frozen=True)
@@ -185,3 +197,128 @@ async def pipeline_rank_fn(question: str, workspace_id: str) -> tuple[list[str],
             question, _uuid.UUID(workspace_id), session
         )
     return [c.chunk_id for c in candidates], [c.chunk_id for c in final]
+
+
+# ── Answer-level eval (recorded answers, CI-safe) ────────────────────────────
+# Retrieval eval proves the pipeline finds the right chunks; answer eval proves
+# produced answers stay grounded in them. Answers are recorded separately
+# (e.g. from production runs or a live annotation pass) and scored
+# deterministically here — no model calls, so this path runs in CI:
+#
+#     {"case_id": "q1", "answer": "Refunds take 30 days [1].",
+#      "cited_chunk_ids": ["<uuid>"], "retrieved_chunk_ids": ["<uuid>", ...]}
+
+
+@dataclass(frozen=True)
+class AnswerRecord:
+    """One scored answer with the ids it cites and retrieved."""
+
+    case_id: str
+    answer: str
+    cited_chunk_ids: list[str]
+    retrieved_chunk_ids: list[str]
+    notes: str = ""
+
+
+def load_answer_records(path: str | Path) -> list[AnswerRecord]:
+    """Parse a recorded-answers JSONL file. Blank lines and // comments allowed."""
+    records: list[AnswerRecord] = []
+    with open(path, encoding="utf-8") as f:
+        for line_no, line in enumerate(f, start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("//"):
+                continue
+            try:
+                raw = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"answers line {line_no}: invalid JSON ({exc})") from exc
+            try:
+                records.append(
+                    AnswerRecord(
+                        case_id=str(raw["case_id"]),
+                        answer=str(raw["answer"]),
+                        cited_chunk_ids=[str(c) for c in raw.get("cited_chunk_ids", [])],
+                        retrieved_chunk_ids=[str(c) for c in raw.get("retrieved_chunk_ids", [])],
+                        notes=str(raw.get("notes", "")),
+                    )
+                )
+            except KeyError as exc:
+                raise ValueError(f"answers line {line_no}: missing required field {exc}") from exc
+    return records
+
+
+def _passes_answer_gates(aggregates: dict[str, float | int], gates: dict[str, float]) -> bool:
+    # Step 1: every minimum-style gate must be met...
+    # Step 2: ...and every maximum-style gate (ungrounded ratio) must hold.
+    for metric, target in gates.items():
+        value = float(aggregates.get(metric, 0.0))
+        if metric in _ANSWER_MAXIMIZE:
+            if value > target:
+                return False
+        elif value < target:
+            return False
+    return True
+
+
+def run_answer_eval(
+    records: list[AnswerRecord],
+    *,
+    thresholds: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """Score recorded answers against the answer-level metrics.
+
+    Synchronous and side-effect free: answers are supplied, not generated.
+    Returns a JSON-ready report with a threshold pass/fail flag for CI gating.
+    """
+    results: list[dict[str, Any]] = []
+    for record in records:
+        # Step 1: coverage — cited chunks the answer actually marks.
+        coverage = citation_coverage(record.answer, len(record.cited_chunk_ids))
+        # Step 2: grounding proxy — claim sentences without any marker.
+        ungrounded = ungrounded_sentence_ratio(record.answer)
+        # Step 3: integrity — cited chunks the retrieval context vouches for.
+        correctness = citation_correctness(record.cited_chunk_ids, record.retrieved_chunk_ids)
+        results.append(
+            {
+                "case_id": record.case_id,
+                "error": None,
+                "cited": len(record.cited_chunk_ids),
+                "retrieved": len(record.retrieved_chunk_ids),
+                "citation_coverage": coverage,
+                "ungrounded_sentence_ratio": ungrounded,
+                "citation_correctness": correctness,
+            }
+        )
+
+    aggregates = _aggregate_answer(results)
+    gates = thresholds if thresholds is not None else dict(DEFAULT_ANSWER_THRESHOLDS)
+    return {
+        "cases_total": len(results),
+        "aggregates": aggregates,
+        "thresholds": gates,
+        "passed": _passes_answer_gates(aggregates, gates),
+        "cases": results,
+    }
+
+
+def _aggregate_answer(results: list[dict[str, Any]]) -> dict[str, float | int]:
+    # Step 1: empty input scores zero — an eval with no answers must FAIL gates.
+    if not results:
+        return {
+            "citation_coverage": 0.0,
+            "ungrounded_sentence_ratio": 1.0,
+            "citation_correctness": 0.0,
+            "cases_scored": 0,
+        }
+    count = len(results)
+
+    def mean(field: str) -> float:
+        return sum(float(r[field]) for r in results) / count
+
+    # Step 2: average each metric across the scored answers.
+    return {
+        "citation_coverage": round(mean("citation_coverage"), 4),
+        "ungrounded_sentence_ratio": round(mean("ungrounded_sentence_ratio"), 4),
+        "citation_correctness": round(mean("citation_correctness"), 4),
+        "cases_scored": count,
+    }

@@ -250,33 +250,12 @@ async def _call_llm(
                 raise _classify_provider_error(exc) from exc
             resp = cast(_CompletionResponse, raw)
 
-        # Parse the LiteLLM (OpenAI-compatible) response into our lightweight types.
-        msg = resp.choices[0].message
-        parsed_calls: list[ToolCall] | None = None
-        if msg.tool_calls:
-            parsed_calls = []
-            for tc in msg.tool_calls:
-                try:
-                    arguments = json.loads(tc.function.arguments)
-                except (json.JSONDecodeError, TypeError):
-                    # Malformed tool-call arguments would otherwise abort the whole
-                    # run. Skip the broken call; the agent loop can retry/answer.
-                    logger.warning(
-                        "model_gateway: skipping tool call with malformed JSON args (%s)",
-                        tc.function.name,
-                    )
-                    continue
-                parsed_calls.append(
-                    ToolCall(
-                        id=tc.id,
-                        function=ToolFunction(
-                            name=tc.function.name,
-                            # Parse JSON arguments into a dict — callers get a ready-to-use
-                            # dict rather than a raw JSON string.
-                            arguments=arguments,
-                        ),
-                    )
-                )
+        try:
+            msg, parsed_calls = _parse_completion(resp)
+        except ProviderError as exc:
+            generation.update(level="ERROR", status_message=str(exc))
+            logfire.error("model_gateway.call.empty_response", model=primary_model)
+            raise
 
         # Record what the model actually returned on the Langfuse generation:
         # bare model name (cost table matches without the LiteLLM prefix),
@@ -303,6 +282,53 @@ async def _call_llm(
         )
 
         return GatewayResponse(content=msg.content, tool_calls=parsed_calls, usage=resp.usage)
+
+
+def _parse_completion(
+    resp: _CompletionResponse,
+) -> tuple[_ResponseMessage, list[ToolCall] | None]:
+    """Validate and parse a raw completion into our lightweight types.
+
+    Raises ProviderError when the provider returned no choices (instead of an
+    IndexError). Malformed tool-call payloads are skipped call-by-call: one
+    broken argument string never aborts the whole response.
+    """
+    # Step 1: a response with zero choices is a protocol violation — the
+    # provider replied, but there is no message to read. Fail with a typed
+    # error instead of letting `resp.choices[0]` blow up with IndexError.
+    if not resp.choices:
+        logger.error("model_gateway: provider returned zero choices")
+        raise ProviderError("Model returned an empty response")
+    msg = resp.choices[0].message
+    parsed_calls: list[ToolCall] | None = None
+    if msg.tool_calls:
+        parsed_calls = []
+        for tc in msg.tool_calls:
+            # Step 2: decode the JSON argument blob. A broken string is
+            # skipped call-by-call so one bad payload can't abort the run.
+            try:
+                arguments = json.loads(tc.function.arguments)
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    "model_gateway: skipping tool call with malformed JSON args (%s)",
+                    tc.function.name,
+                )
+                continue
+            # Step 3: the decoded value must be a JSON object. An array or
+            # scalar parses fine but would crash every .get() downstream.
+            if not isinstance(arguments, dict):
+                logger.warning(
+                    "model_gateway: skipping tool call with non-object args (%s)",
+                    tc.function.name,
+                )
+                continue
+            parsed_calls.append(
+                ToolCall(
+                    id=tc.id,
+                    function=ToolFunction(name=tc.function.name, arguments=arguments),
+                )
+            )
+    return msg, parsed_calls
 
 
 def _bare_model_name(model: str) -> str:

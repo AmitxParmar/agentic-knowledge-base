@@ -176,7 +176,9 @@ Integration tests mock the DB/session heavily.
 
 **Current gap**
 
-- No CI workflow in the repo.
+- ~~No CI workflow in the repo.~~ CI runs ruff + basedpyright + pytest + TS
+  lint/typecheck on push/PR (`.github/workflows/ci.yml`, 2026-09-28); the
+  golden-set eval job is non-blocking until the golden set is real.
 - No automated “PDF upload → job done → question → ≥1 citation” against a
   real (or testcontainers) Postgres + Redis.
 - `scratch_test.py` is a manual hub, not a regression suite.
@@ -196,7 +198,7 @@ Minimum green bar for “MVP works”:
 - [ ] Question → cited answer over WebSocket
 - [ ] ≥1 citation with usable `source_ref`
 - [ ] Progress events use only `ux.md` strings
-- [ ] ruff + basedpyright + pytest green in CI
+- [x] ruff + basedpyright + pytest green in CI
 
 **Effort:** M · **Unblocks:** safe iteration on everything else
 
@@ -360,7 +362,8 @@ are fetched.
 1. Prompt model to emit `[n]` markers; only keep citations referenced in text
 2. Store optional `answer_span` on `citations` (schema already contemplates it)
 3. API to fetch chunk text by id for citation click-through
-4. Integration test: every `[n]` in answer maps to a real chunk
+4. Integration test: every `[n]` in answer maps to a real chunk (runtime
+   marker validator + unit tests added 2026-09-28; E2E form still open)
 
 **Effort:** M
 
@@ -489,10 +492,13 @@ These often get skipped in agentic RAG builds:
 ### LLM systems
 
 - [ ] **Prompt/version registry** — system prompts as versioned artifacts
-- [ ] **Tool argument validation** — reject empty/insane retrieval queries
+- [x] **Tool argument validation** — reject empty/insane retrieval queries
+  (pydantic-validated with raw-question fallback, 2026-09-28)
 - [ ] **Output size caps** — max answer tokens to protect UX and cost
 - [ ] **No CoT leakage** — add a test that scans WS frames for prompt fragments
-- [ ] **Evaluation harness early** — even 10 hand-labeled questions pays off
+- [x] **Evaluation harness early** — even 10 hand-labeled questions pays off
+  (retrieval harness + recorded-answer eval wired with gates, 2026-09-28;
+  checked-in golden set still placeholder)
 
 ### Product / ops
 

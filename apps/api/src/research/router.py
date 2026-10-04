@@ -41,6 +41,7 @@ from src.retrieval.pipeline import RetrievalError
 from src.shared.database import get_session
 from src.shared.model_gateway import ProviderError, RateLimitError
 from src.shared.progress import ResearchStage, emit, emit_done, emit_error
+from src.shared.prompt_safety import MAX_QUESTION_CHARS, sanitize_user_text
 from src.shared.rate_limit import check_chat_rate_limit
 from src.shared.semantic_cache import SemanticCache
 
@@ -109,6 +110,11 @@ async def research_websocket(
             await emit_error(ws, "Question cannot be empty.")
             await ws.close()
             return
+        if len(question) > MAX_QUESTION_CHARS:
+            await emit_error(ws, f"Question is too long (max {MAX_QUESTION_CHARS} characters).")
+            await ws.close()
+            return
+        question = sanitize_user_text(question)
 
         # Semantic cache — return the cached answer on a similar-question hit,
         # skipping the full pipeline (ADR-007). Never raises; a Redis failure
@@ -130,12 +136,16 @@ async def research_websocket(
             # to a live run (ux.md vocabulary only).
             for stage in ResearchStage:
                 await emit(ws, stage)
-            await ws.send_text(json.dumps({
-                "type": "answer",
-                "run_id": str(run.id),
-                "text": hit.answer,
-                "citations": _citation_payload(hit.citations),
-            }))
+            await ws.send_text(
+                json.dumps(
+                    {
+                        "type": "answer",
+                        "run_id": str(run.id),
+                        "text": hit.answer,
+                        "citations": _citation_payload(hit.citations),
+                    }
+                )
+            )
             await emit_done(ws)
             await ws.close()
             return
@@ -179,12 +189,16 @@ async def research_websocket(
 
         # Send the final answer with citations
         # Citations include source_ref for the UI to display (ux.md citation display requirement)
-        await ws.send_text(json.dumps({
-            "type": "answer",
-            "run_id": str(run.id),
-            "text": result.answer,
-            "citations": _citation_payload(result.citations),
-        }))
+        await ws.send_text(
+            json.dumps(
+                {
+                    "type": "answer",
+                    "run_id": str(run.id),
+                    "text": result.answer,
+                    "citations": _citation_payload(result.citations),
+                }
+            )
+        )
         await emit_done(ws)
 
     except WebSocketDisconnect:
@@ -216,7 +230,7 @@ async def research_websocket(
 class ChatRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    question: str | None = None
+    question: str | None = Field(default=None, max_length=MAX_QUESTION_CHARS)
     messages: list[dict[str, Any]] | None = None
     thread_id: str | None = Field(default=None, alias="threadId")
 
@@ -396,6 +410,12 @@ async def research_chat(
                     break
     if not question:
         raise HTTPException(status_code=422, detail="Question cannot be empty.")
+    if len(question) > MAX_QUESTION_CHARS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Question is too long (max {MAX_QUESTION_CHARS} characters).",
+        )
+    question = sanitize_user_text(question)
 
     thread_id = request.thread_id or "default"
 
@@ -500,7 +520,6 @@ async def get_run(
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
-
     result = await session.execute(
         select(ResearchRun)
         .options(selectinload(ResearchRun.citations))
@@ -509,6 +528,7 @@ async def get_run(
     run = result.scalar_one_or_none()
     if run is None:
         from src.shared.errors import NotFoundError
+
         raise NotFoundError(f"Run {run_id} not found")
 
     return {

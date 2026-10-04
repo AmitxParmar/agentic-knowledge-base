@@ -247,7 +247,7 @@ def test_pack_truncates_last_chunk_with_ellipsis() -> None:
 
     assert "big_0.pdf, chunk 0" in packed
     assert "big_1.pdf, chunk 1" in packed
-    assert packed.endswith("...")
+    assert "...\n</document>" in packed  # truncated body, delimiters still closed
 
 
 def test_pack_stays_within_token_budget() -> None:
