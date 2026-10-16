@@ -4,13 +4,13 @@
  * Purpose:    Browser voice channel for the research agent. Captures the mic
  *             as 16 kHz mono float32 PCM, streams it as binary WebSocket
  *             frames to /api/research/ws/voice, and plays back the streamed
- *             MP3 TTS chunks. Mirrors the text chat flow: transcript →
+ *             WAV TTS chunks. Mirrors the text chat flow: transcript →
  *             research run → answer + citations, with a latency breakdown.
  *
  * Transport protocol (ADR-006):
  *     client → server  binary: raw f32 PCM frames
  *     client → server  text:   {"action":"start"} | {"action":"stop"}
- *     server → client  binary: MP3 audio chunks (TTS)
+ *     server → client  binary: WAV audio chunks (TTS)
  *     server → client  text:   {"type":"ready","transcript","answer","done",
  *                               "latency","error"}
  *
@@ -106,7 +106,7 @@ export function useVoiceChat({
     setIsSpeaking(false);
   }, []);
 
-  const playMp3Chunk = useCallback(async (arrayBuffer: ArrayBuffer) => {
+  const playAudioChunk = useCallback(async (arrayBuffer: ArrayBuffer) => {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
     try {
@@ -167,12 +167,12 @@ export function useVoiceChat({
       if (!(event.data instanceof Blob) && !(event.data instanceof ArrayBuffer)) return;
       if (event.data instanceof Blob) {
         // Binary frames over WebSocket arrive as Blob by default.
-        void event.data.arrayBuffer().then(playMp3Chunk);
+        void event.data.arrayBuffer().then(playAudioChunk);
       } else {
-        void playMp3Chunk(event.data);
+        void playAudioChunk(event.data);
       }
     },
-    [playMp3Chunk],
+    [playAudioChunk],
   );
 
   const close = useCallback(() => {

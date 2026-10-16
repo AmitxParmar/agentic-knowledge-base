@@ -5,6 +5,14 @@
 Accepted. Adds a bidirectional real-time voice channel to the research
 workspace, layered on the existing WebSocket transport.
 
+**Amended 2026-10-16 — TTS provider swap:** edge-tts (Microsoft Edge's
+unofficial neural-TTS service) started failing with `403 WSServerHandshakeError`
+during handshake; the dependency is being replaced by **Groq Orpheus**
+(`canopylabs/orpheus-v1-english`) — a hosted API riding the model gateway's
+existing Groq credential. Local TTS engines (Piper, Kokoro) are additionally
+ruled out by the deployment target: Render free tier (512 MB RAM, shared CPU)
+cannot host model inference. `tts_chunks()` remains the single swap seam.
+
 ## Context
 
 The research workspace accepts text questions and streams citation-backed
@@ -27,8 +35,9 @@ impatient.
    (`src/shared/progress.py`, `websockets>=15`).
 2. No new frontend audio dependency — the browser Web Audio API covers mic
    capture and playback.
-3. No new API keys. The model gateway requires credentials; TTS and STT must
-   either be self-hosted already-installed, or free and keyless.
+3. No new API keys. TTS and STT must be self-hosted already-installed, free
+   and keyless, or ride an **existing** gateway credential (no new signup,
+   no new secret).
 4. Citations must survive the voice pipeline exactly as they do for text.
 
 ## Decision
@@ -49,21 +58,26 @@ impatient.
   latency on short utterances; `VOICE_STT_MODEL` lets an operator trade
   accuracy for latency (`distil-small.en`, `large-v3-turbo`).
 
-### TTS: edge-tts (new dependency, ADR approval)
+### TTS: Groq Orpheus (hosted, via the Model Gateway) — supersedes edge-tts
 
-- &#91;`edge-tts`&#93;(https://github.com/rany2/edge-tts) calls Microsoft Edge's
-  neural TTS service over HTTPS — **free, no API key**, streams MP3 chunks
-  as an async generator (`Communicate.stream()`).
-- Yields `audio-24khz-48kbitrate-mono-mp3` chunks as they are synthesized,
-  so the first audio byte reaches the browser before the agent's final token
-  is complete when the answer is long.
-- Browser `AudioContext.decodeAudioData()` decodes MP3 natively — no
-  frontend audio dependency.
-- Voice `en-US-AriaNeural` default, configurable via `VOICE_TTS_VOICE`.
+- `canopylabs/orpheus-v1-english` on Groq's OpenAI-compatible speech endpoint
+  (`https://api.groq.com/openai/v1/audio/speech`) — **hosted** (zero CPU/RAM
+  on Render free tier), **no new API key** (reuses `GROQ_API_KEY` through the
+  gateway), free tier without a credit card.
+- Called through `model_gateway.speech()` — same rule as chat: no provider
+  SDK in feature code; httpx (already a dependency) is the transport.
+- One request is capped at **200 characters** and returns a complete **WAV**
+  (no server-side streaming), so `voice_tts.split_for_tts()` sentence-chunks
+  the answer; each WAV chunk is independently decodable by the browser's
+  `AudioContext.decodeAudioData()`. Chunk N plays while chunk N+1 synthesizes
+  — synthesis pipelines with playback, preserving the perceived-latency win.
+- Free-tier rate limits are per-model (10 RPM / 100 requests/day on Orpheus)
+  and do not consume the chat models' quota; a typical answer is ~5 requests.
+- Voice `hannah` default, configurable via `VOICE_TTS_VOICE`.
 
 ### Transport: one binary WebSocket `/api/research/ws/voice`
 
-Binary frames carry PCM (client→server) and MP3 (server→client); JSON text
+Binary frames carry PCM (client→server) and WAV (server→client); JSON text
 frames carry control + metadata. Mirrors the existing `/ws` research
 endpoint's shape (Depends auth, session, progress vocabulary, error codes).
 
@@ -74,25 +88,30 @@ endpoint's shape (Depends auth, session, progress vocabulary, error codes).
 - Full bidirectional real-time voice reusing the agent, gateway, and WS
   layer — the phrase voice-agent JDs actually use.
 - Sub-second STT baseline (small + int8) with a tunable knob.
-- Streaming TTS overlaps the agent's generation tail, cutting perceived
-  latency.
-- Zero new API keys; one new Python dep.
+- Chunked TTS pipelines synthesis with playback, cutting perceived latency.
+- Zero new API keys (existing Groq credential) and the swap **retires** the
+  `edge-tts` dependency — net one Python dep removed.
 
 ### Negative / mitigations
 
 | Risk | Mitigation |
 |---|---|
 | faster-whisper large on CPU too slow | Default `small`; configurable model; int8 quantization |
-| edge-tts depends on Microsoft service availability | Unfurl-able; falls back to text-only answer on failure |
+| Orpheus free tier: 10 RPM / 100 requests/day | Sentence-chunking keeps a typical answer ≤ 6 requests; text-only fallback on TTS failure; Developer tier removes the cap if needed |
+| Orpheus 200-char input cap | `split_for_tts()` splits on sentence → clause → word boundaries; pieces never exceed the cap |
+| Non-streaming WAV responses | Chunked pipelining + buffered playback of each chunk (`decodeAudioData`) |
+| Groq model terms must be accepted once by the org admin | One-time accept in the Groq console playground; `test_voice.py` carries a live-gated probe |
+| Hosted-provider churn (Groq already replaced PlayAI with Orpheus) | `tts_chunks()` seam: a swap is one module + an ADR amendment |
 | VAD misjudges utterance end | Silero is state-of-the-art for this; `VOICE_VAD_SILENCE_MS`, threshold, min-speech keys are tunable |
-| MP3 decode in browser | `AudioContext.decodeAudioData` is native |
 
 ### Alternatives considered
 
 | Alternative | Why rejected |
 |---|---|
 | Deepgram / AssemblyAI realtime STT | New API key + cost; defeats "self-hosted" constraint |
-| ElevenLabs / Azure TTS | New API key + cost; ADR closes the gap with edge-tts for free |
+| ElevenLabs / Azure / Google Cloud TTS | Official hosted APIs, but ElevenLabs free = 10k chars/mo (~10 answers); Azure/Google free tiers need a new account + billing setup — rejected against zero-new-setup Orpheus |
+| Local engines (Piper, Kokoro-ONNX) | Free and offline, but Render free tier (512 MB, shared CPU) cannot reliably host inference — rejected by the deployment constraint |
+| Bump edge-tts 7.2.8 → 7.3.1 | Same unofficial Microsoft endpoint already returning 403 — stopgap only |
 | Whisper streaming (`whisper_streaming` wrapper) | Extra dep to simulate streaming; Silero endpointing + batched buﬀer is simpler and genuinely correct |
 | WebRTC transport | Browser + server WebSocket covers it; no reason to add a new transport |
 | pyannote / diarization | Single-user channel; YAGNI |
@@ -103,11 +122,12 @@ Add to `docs/conventions.md` → Approved Libraries table:
 
 | Concern | Library |
 |---|---|
-| TTS (streaming, keyless) | edge-tts |
+| TTS (hosted) | Groq Orpheus via Model Gateway (`model_gateway.speech`) |
 | STT + VAD endpointing | faster-whisper (extend existing row) |
 
 ## Packages
 
 ```bash
-uv add "edge-tts>=7.0"   # from apps/api/
+# from apps/api/ — the swap removes a package; nothing new is added:
+uv remove edge-tts
 ```

@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/research", label: "Research" },
   { href: "/library", label: "Library" },
   { href: "/runs", label: "Runs" },
+  { href: "/usage", label: "Usage" },
 ];
 
 export function SiteHeader() {

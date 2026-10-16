@@ -80,6 +80,22 @@ def _local_embed(texts: list[str]) -> list[list[float]]:
     return vectors
 
 
+def embedding_model_label() -> str:
+    """Provenance label for the vectors ``embed_texts`` is producing now.
+
+    Stored on ``chunks.embedding_model`` so a corpus that mixes embedding
+    spaces (e.g. dev hash vectors landing next to real Cohere vectors) is
+    detectable instead of silently degrading similarity. Mirrors the
+    fallback decision in ``_embed_batch``: with the dev escape hatch on and
+    no key configured, every vector is hash-based.
+    """
+    # Step 1: the dev escape hatch without a key means hash vectors only.
+    if settings.ALLOW_EMBEDDING_FALLBACK and not settings.COHERE_API_KEY:
+        return "local-hash-256"
+    # Step 2: otherwise the configured Cohere model is the steady state.
+    return settings.COHERE_EMBED_MODEL
+
+
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors."""
     dot = sum(x * y for x, y in zip(a, b, strict=True))

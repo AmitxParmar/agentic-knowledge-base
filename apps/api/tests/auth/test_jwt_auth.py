@@ -77,9 +77,7 @@ async def test_header_override_ignored_in_jwt_mode() -> None:
     token = create_access_token(USER, WORKSPACE)
     forged = str(uuid.uuid4())
 
-    ws = await get_workspace_id(
-        x_workspace_id=forged, authorization=f"Bearer {token}"
-    )
+    ws = await get_workspace_id(x_workspace_id=forged, authorization=f"Bearer {token}")
     assert ws == WORKSPACE
 
 
@@ -92,7 +90,9 @@ async def test_missing_or_garbled_token_is_generic_401() -> None:
 
 
 async def test_workspace_claim_must_be_a_uuid() -> None:
-    bogus = pyjwt.encode({"sub": str(USER), "ws": "not-a-uuid"}, settings.AUTH_JWT_SECRET, algorithm="HS256")
+    bogus = pyjwt.encode(
+        {"sub": str(USER), "ws": "not-a-uuid"}, settings.AUTH_JWT_SECRET, algorithm="HS256"
+    )
     with pytest.raises(HTTPException):
         await get_workspace_id(x_workspace_id=None, authorization=f"Bearer {bogus}")
 
@@ -104,9 +104,7 @@ async def test_stub_mode_keeps_dev_behavior(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(settings, "AUTH_MODE", "stub")
 
     default_ws = await get_workspace_id(x_workspace_id=None, authorization=None)
-    override_ws = await get_workspace_id(
-        x_workspace_id=str(WORKSPACE), authorization=None
-    )
+    override_ws = await get_workspace_id(x_workspace_id=str(WORKSPACE), authorization=None)
     user = await get_user_id(authorization=None)
 
     assert default_ws == _DEV_WORKSPACE_ID
@@ -120,3 +118,33 @@ async def test_stub_mode_rejects_invalid_header_uuid(
     monkeypatch.setattr(settings, "AUTH_MODE", "stub")
     with pytest.raises(HTTPException):
         await get_workspace_id(x_workspace_id="garbage", authorization=None)
+
+
+# ── websocket token query param ───────────────────────────────────────────────
+
+
+async def test_query_token_resolves_for_websockets() -> None:
+    """Browsers cannot set WS handshake headers — ?token= carries the same JWT."""
+    token = create_access_token(USER, WORKSPACE)
+
+    ws = await get_workspace_id(x_workspace_id=None, authorization=None, token=token)
+    user = await get_user_id(authorization=None, token=token)
+
+    assert ws == WORKSPACE
+    assert user == USER
+
+
+async def test_header_wins_over_query_token() -> None:
+    """A garbled Authorization header fails closed even with a valid ?token=."""
+    token = create_access_token(USER, WORKSPACE)
+
+    with pytest.raises(HTTPException) as exc:
+        await get_workspace_id(x_workspace_id=None, authorization="Bearer not.a.jwt", token=token)
+    assert exc.value.status_code == 401
+
+
+async def test_garbled_query_token_is_generic_401() -> None:
+    with pytest.raises(HTTPException) as exc:
+        await get_workspace_id(x_workspace_id=None, authorization=None, token="not.a.jwt")
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Authentication required."

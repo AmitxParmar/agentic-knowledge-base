@@ -64,7 +64,10 @@ Full checklist: [`docs/REMAINING.md`](REMAINING.md). Snapshot:
 
 ## Token streaming
 
-**Not implemented today.** Gateway uses non-stream `chat.completions.create()`; WebSocket sends one full `answer` blob after progress stages.
+**Shipped 2026-09-28 (SSE path).** Gateway `complete_stream` yields text
+deltas + trailing usage; synthesize forwards them as AG-UI
+`TEXT_MESSAGE_CONTENT` events; the legacy WebSocket still sends one full
+`answer` blob after progress stages.
 
 **Recommended design (same WebSocket):**
 

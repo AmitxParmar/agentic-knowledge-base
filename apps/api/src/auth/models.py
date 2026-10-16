@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,6 +33,9 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     # auth_id: external provider identifier (Clerk, Auth0, etc.) — stubbed for MVP
     auth_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    # Daily LLM token budget across all research runs; NULL means unlimited.
+    # Enforced in run_agent via src.research.usage (covers SSE, WS, voice).
+    daily_token_budget: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     workspaces: Mapped[list[Workspace]] = relationship(back_populates="owner")
@@ -52,4 +55,6 @@ class Workspace(Base):
     owner: Mapped[User] = relationship(back_populates="workspaces")
     documents: Mapped[list[Document]] = relationship(back_populates="workspace")
     research_runs: Mapped[list[ResearchRun]] = relationship(back_populates="workspace")
-    conversation_threads: Mapped[list[ConversationThread]] = relationship(back_populates="workspace")
+    conversation_threads: Mapped[list[ConversationThread]] = relationship(
+        back_populates="workspace"
+    )

@@ -142,6 +142,15 @@ class Settings(BaseSettings):
     # ── Hardening / Reliability ──────────────────────────────────────────────
     # Timeouts (seconds)
     MODEL_GATEWAY_TIMEOUT: int = Field(default=30, description="Model gateway total timeout")
+    MODEL_GATEWAY_PROVIDER_TIMEOUT: int = Field(
+        default=12,
+        description=(
+            "Per-provider timeout inside LiteLLM. Budget math: one litellm "
+            "cycle is primary (12s) + fallback (12s) + backoff (~1s) ≈ 25s, "
+            "which fits under AGENT_ITERATION_TIMEOUT (30s) so retries and "
+            "fallbacks actually execute under the agent's outer wait_for."
+        ),
+    )
     MODEL_GATEWAY_CONNECT_TIMEOUT: int = Field(
         default=10, description="Model gateway connect timeout"
     )
@@ -150,6 +159,10 @@ class Settings(BaseSettings):
     RETRIEVAL_VECTOR_SEARCH_TIMEOUT: int = Field(default=5, description="Vector search timeout")
     AGENT_RUN_TIMEOUT: int = Field(default=60, description="Agent run total timeout")
     AGENT_ITERATION_TIMEOUT: int = Field(default=30, description="Agent iteration timeout")
+    MAX_ANSWER_TOKENS: int = Field(
+        default=2048,
+        description="Cap on synthesis output tokens — protects UX latency and cost",
+    )
     PDF_PARSE_TIMEOUT: int = Field(default=10, description="PDF parsing timeout")
 
     # Upload limits
@@ -169,6 +182,26 @@ class Settings(BaseSettings):
     AGENT_TOKEN_BUDGET: int = Field(
         default=60_000,
         description="Max cumulative LLM tokens per research run; exceeding it routes to final synthesis",
+    )
+    DEFAULT_DAILY_TOKEN_BUDGET: int | None = Field(
+        default=None,
+        description=(
+            "Instance-wide daily LLM token budget per user; None means unlimited "
+            "unless the user row sets its own daily_token_budget."
+        ),
+    )
+    CIRCUIT_BREAKER_THRESHOLD: int = Field(
+        default=5, description="Provider failures in the window before the breaker opens"
+    )
+    CIRCUIT_BREAKER_WINDOW: int = Field(
+        default=30, description="Sliding failure-count window in seconds"
+    )
+    CIRCUIT_BREAKER_COOLDOWN: int = Field(
+        default=60, description="Seconds an open breaker skips its provider"
+    )
+    GUARDRAILS_ENABLED: bool = Field(
+        default=True,
+        description="Pattern guardrails (ADR-010): injection telemetry + secret redaction",
     )
     EMBED_QUERY_CACHE_SIZE: int = Field(
         default=1024,
@@ -237,10 +270,14 @@ class Settings(BaseSettings):
     VOICE_VAD_ENERGY_FLOOR: float = Field(
         default=0.01, description="RMS gate before running the neural VAD"
     )
-    # TTS: edge-tts (ADR-006). Voice names: see edge-tts list_voices().
-    VOICE_TTS_VOICE: str = Field(
-        default="en-US-AriaNeural", description="edge-tts voice for TTS output"
+    # TTS: Groq Orpheus (ADR-006, amended 2026-10-16). Hosted via the Model
+    # Gateway — free tier, no new key. Voice IDs: autumn | diana | hannah |
+    # austin | daniel | troy.
+    VOICE_TTS_MODEL: str = Field(
+        default="canopylabs/orpheus-v1-english",
+        description="Hosted TTS model for the voice channel (Groq Orpheus)",
     )
+    VOICE_TTS_VOICE: str = Field(default="hannah", description="Orpheus voice ID for TTS output")
     # Interrupt: when True, an incoming utterance cuts off playing TTS audio.
     VOICE_INTERRUPTIBLE: bool = Field(
         default=True, description="Stop TTS when the user starts speaking again"

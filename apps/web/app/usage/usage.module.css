@@ -1,0 +1,101 @@
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: hsl(var(--muted-foreground));
+  margin-top: var(--space-1);
+  margin-bottom: var(--space-6);
+}
+
+.empty {
+  padding: var(--space-8) var(--space-6);
+  color: hsl(var(--muted-foreground));
+}
+
+.error {
+  padding: var(--space-8) var(--space-6);
+  color: hsl(var(--warn));
+}
+
+.alert {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-6);
+  border: 1px solid hsl(var(--warn));
+  border-radius: 6px;
+  color: hsl(var(--warn));
+  font-size: 14px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.card {
+  padding: var(--space-5) var(--space-4);
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+
+.cardLabel {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: var(--space-2);
+}
+
+.cardValue {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.cardMeta {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  margin-top: var(--space-1);
+}
+
+.budgetSection {
+  max-width: 560px;
+}
+
+.budgetRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: var(--space-2);
+}
+
+.budgetBar {
+  height: 8px;
+  border-radius: 4px;
+  background: hsl(var(--muted));
+  overflow: hidden;
+}
+
+.budgetFill {
+  height: 100%;
+  background: hsl(var(--accent));
+  transition: width 0.3s ease;
+}
+
+.budgetFill.warn {
+  background: hsl(var(--warn));
+}
+
+.budgetFill.over {
+  background: hsl(var(--warn));
+}

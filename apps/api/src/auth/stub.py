@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Query
 from fastapi.security.utils import get_authorization_scheme_param
 
 from app.settings import settings
@@ -37,12 +37,18 @@ def _unauthorized() -> HTTPException:
 async def get_workspace_id(
     x_workspace_id: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
+    token: str | None = Query(default=None),
 ) -> uuid.UUID:
-    """Resolve the caller's workspace from the request."""
+    """Resolve the caller's workspace from the request.
+
+    `token` (query param) exists for WebSocket clients: browsers cannot set
+    an Authorization header on a WS handshake, so they pass the same Bearer
+    token as ?token=<jwt>. HTTP callers keep using the header (preferred).
+    """
     if settings.AUTH_MODE == "jwt":
         # Header override is ignored in jwt mode - the token is the source.
         del x_workspace_id
-        _, workspace_id = await _authenticate(authorization)
+        _, workspace_id = await _authenticate(authorization, token)
         return workspace_id
 
     if x_workspace_id:
@@ -53,18 +59,36 @@ async def get_workspace_id(
     return _DEV_WORKSPACE_ID
 
 
-async def get_user_id(authorization: str | None = Header(default=None)) -> uuid.UUID:
-    """Resolve the caller's user id from the request."""
+async def get_user_id(
+    authorization: str | None = Header(default=None),
+    token: str | None = Query(default=None),
+) -> uuid.UUID:
+    """Resolve the caller's user id from the request (header or ?token=)."""
     if settings.AUTH_MODE == "jwt":
-        user_id, _ = await _authenticate(authorization)
+        user_id, _ = await _authenticate(authorization, token)
         return user_id
     return _DEV_USER_ID
 
 
-async def _authenticate(authorization: str | None) -> tuple[uuid.UUID, uuid.UUID]:
+async def _authenticate(
+    authorization: str | None, query_token: str | None = None
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Verify the request credential.
+
+    Precedence: Authorization: Bearer header (HTTP) → ?token= query param
+    (WebSocket handshake). Both carry the same HS256 token.
+    """
+    # Step 0: direct calls (tests) pass FastAPI's Query descriptor object
+    # instead of None when the param is omitted — normalize it away.
+    if not isinstance(query_token, str):
+        query_token = None
+    # Step 1: prefer the header; fall back to the WS query param.
     scheme, token = get_authorization_scheme_param(authorization or "")
     if scheme.lower() != "bearer" or not token:
+        token = query_token or ""
+    if not token:
         raise _unauthorized()
+    # Step 2: a bad/expired token fails closed, never reveals why.
     try:
         return decode_token(token)
     except AuthError:

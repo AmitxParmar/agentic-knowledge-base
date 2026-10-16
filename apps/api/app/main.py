@@ -38,6 +38,79 @@ from src.shared.redis import close_redis
 
 logger = logging.getLogger(__name__)
 
+# ── Readiness advisories (non-fatal) ─────────────────────────────────────────
+# Cheap probes that operators want visible but that must NOT flip readiness:
+# a tripped provider breaker or a busy disk should degrade answers, not cause
+# Render to recycle an otherwise healthy instance.
+
+_EMB_VERSION_CACHE: dict[str, Any] = {"at": 0.0, "value": "unknown"}
+
+
+async def _embedding_versions() -> str:
+    """Distinct embedding models stored on chunks (60s in-process cache).
+
+    Mixed models inside one pgvector column silently degrade similarity
+    (different embedding spaces), so the check is surfaced instead of hidden.
+    """
+    # Step 1: serve from cache — readiness probes hit this every few seconds.
+    now = time.monotonic()
+    if now - float(_EMB_VERSION_CACHE["at"]) < 60.0:
+        return str(_EMB_VERSION_CACHE["value"])
+    # Step 2: bounded DISTINCT scan; any failure reports as unknown, never 5xx.
+    import asyncio
+
+    try:
+        from sqlalchemy import select
+
+        from src.ingestion.models import Chunk
+        from src.shared.database import SessionLocal
+
+        async with SessionLocal() as session:
+            result = await asyncio.wait_for(
+                session.execute(
+                    select(Chunk.embedding_model)
+                    .where(Chunk.embedding_model.is_not(None))
+                    .distinct()
+                    .limit(5)
+                ),
+                timeout=2,
+            )
+            models = sorted(str(row[0]) for row in result.all())
+        if not models:
+            value = "unversioned (pre-tracking corpus)"
+        elif len(models) == 1:
+            value = f"ok ({models[0]})"
+        else:
+            value = f"MIXED ({', '.join(models)})"
+            logger.warning("chunks carry %d embedding models: %s", len(models), models)
+    except Exception as exc:
+        value = f"unknown: {type(exc).__name__}"
+    # Step 3: stamp the cache and return.
+    _EMB_VERSION_CACHE.update({"at": now, "value": value})
+    return value
+
+
+def _disk_usage() -> str:
+    """Upload-volume usage percent — advisory, skipped when R2 is the store."""
+    # Step 1: managed object storage has no local volume to watch.
+    if settings.r2_enabled:
+        return "r2 (managed)"
+    # Step 2: measure the filesystem that holds UPLOAD_DIR (may not exist yet).
+    import shutil
+    from pathlib import Path
+
+    path = Path(settings.UPLOAD_DIR)
+    probe = path if path.exists() else path.parent
+    try:
+        usage = shutil.disk_usage(probe)
+    except OSError as exc:
+        return f"unknown: {type(exc).__name__}"
+    pct = round(usage.used / usage.total * 100) if usage.total else 0
+    # Step 3: log near-full volumes for ops; still advisory to readiness.
+    if pct >= 90:
+        logger.warning("upload volume %s is %d%% full", probe, pct)
+    return f"{pct}% used"
+
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
@@ -123,6 +196,8 @@ def create_app() -> FastAPI:
         """
         Readiness: verifies Redis and DB connectivity.
         Returns 200 only when all dependencies are reachable.
+        Provider-breaker, embedding-version, and disk entries are advisory —
+        they are reported but never flip the status code.
         """
         import asyncio
 
@@ -132,6 +207,7 @@ def create_app() -> FastAPI:
         # Redis check
         try:
             from src.shared.redis import redis_client as _get_redis
+
             r = await asyncio.wait_for(_get_redis(), timeout=2)
             if r and r is not False:
                 await asyncio.wait_for(r.ping(), timeout=2)
@@ -148,6 +224,7 @@ def create_app() -> FastAPI:
             from sqlalchemy import text
 
             from src.shared.database import SessionLocal
+
             async with SessionLocal() as session:
                 await asyncio.wait_for(session.execute(text("SELECT 1")), timeout=2)
             checks["db"] = "ok"
@@ -167,8 +244,29 @@ def create_app() -> FastAPI:
             checks["embeddings"] = f"error: {type(exc).__name__}"
             ok = False
 
+        # Advisory: model-provider breaker states (external service — an open
+        # breaker means degraded answers, not an unhealthy API instance).
+        try:
+            from src.shared.circuit_breaker import breaker
+
+            snapshot = breaker.snapshot()
+            checks["model_providers"] = (
+                ", ".join(f"{p}={s['state']}" for p, s in snapshot.items())
+                if snapshot
+                else "untested"
+            )
+        except Exception as exc:
+            checks["model_providers"] = f"error: {type(exc).__name__}"
+
+        # Advisory: mixed embedding models inside the pgvector column would
+        # silently degrade similarity — surface it, don't hide it.
+        checks["embedding_versions"] = await _embedding_versions()
+        # Advisory: upload-volume headroom (local disk mode only).
+        checks["upload_disk"] = _disk_usage()
+
         status_code = 200 if ok else 503
         from fastapi.responses import JSONResponse
+
         return JSONResponse(
             status_code=status_code,
             content={"status": "ok" if ok else "degraded", "checks": checks},
@@ -187,18 +285,22 @@ def create_app() -> FastAPI:
             "docs": "visit /docs for api documentation",
         }
 
-    @app.get("/test-llm", include_in_schema=False)
-    async def test_llm() -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
-        from src.shared.model_gateway import complete
+    # Debug-only LLM smoke test. In production it would burn provider quota
+    # and echo provider errors, so it exists only when APP_DEBUG=true.
+    if settings.APP_DEBUG:
 
-        try:
-            response = await complete(
-                [{"role": "user", "content": "Say hello in one sentence."}],
-                max_tokens=100,
-            )
-            return {"status": "ok", "response": response}
-        except Exception as exc:
-            return {"status": "error", "error": str(exc)}
+        @app.get("/test-llm", include_in_schema=False)
+        async def test_llm() -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
+            from src.shared.model_gateway import complete
+
+            try:
+                response = await complete(
+                    [{"role": "user", "content": "Say hello in one sentence."}],
+                    max_tokens=100,
+                )
+                return {"status": "ok", "response": response}
+            except Exception as exc:
+                return {"status": "error", "error": str(exc)}
 
     return app
 

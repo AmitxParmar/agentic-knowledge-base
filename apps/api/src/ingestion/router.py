@@ -24,7 +24,8 @@ from sqlalchemy.orm import selectinload
 from app.settings import settings
 from src.auth.stub import get_user_id, get_workspace_id
 from src.ingestion.models import Chunk, Document, IngestionJob, JobStage, SourceType
-from src.ingestion.storage import store
+from src.ingestion.pipeline import reset_job_for_retry
+from src.ingestion.storage import delete_ref, store
 from src.research.models import Citation
 from src.shared.database import get_session
 from src.shared.errors import NotFoundError
@@ -47,6 +48,42 @@ class JobStatusResponse(BaseModel):
     document_id: str
     stage: str
     error: str | None = None
+
+
+class FailedJobResponse(JobStatusResponse):
+    filename: str
+
+
+class FailedJobsResponse(BaseModel):
+    jobs: list[FailedJobResponse]
+    total: int
+
+
+class RetryResponse(BaseModel):
+    job_id: str
+    document_id: str
+    status: str
+    message: str
+
+
+async def _enqueue_ingestion_job(*, document_id: str, content_hash: str | None) -> None:
+    """Enqueue the arq ingestion job under a deterministic id.
+
+    The _job_id pins re-delivery to one arq job per document content, so a
+    manual retry and an at-least-once redelivery never double-enqueue.
+    Content hash may be null on legacy rows — fall back to the document id.
+    """
+    # Step 1: open a short-lived pool (callers are request handlers, not workers).
+    redis = await arq.create_pool(arq.connections.RedisSettings.from_dsn(settings.REDIS_URL))
+    try:
+        # Step 2: enqueue under the deterministic id; close the pool either way.
+        await redis.enqueue_job(
+            "run_ingestion_job",
+            document_id=document_id,
+            _job_id=f"ingest:{content_hash or document_id}",
+        )
+    finally:
+        await redis.close()
 
 
 def _validate_pdf(raw: bytes, filename: str) -> None:
@@ -74,7 +111,10 @@ def _validate_pdf(raw: bytes, filename: str) -> None:
         raise HTTPException(status_code=422, detail="File could not be parsed as a PDF.") from None
 
     if reader.is_encrypted:
-        raise HTTPException(status_code=422, detail="Encrypted PDFs are not supported. Please decrypt before uploading.")
+        raise HTTPException(
+            status_code=422,
+            detail="Encrypted PDFs are not supported. Please decrypt before uploading.",
+        )
 
     page_count = len(reader.pages)
     if page_count == 0:
@@ -105,8 +145,14 @@ async def upload_document(
 
     # ── Content-Type validation ───────────────────────────────────────────────
     content_type = file.content_type or ""
-    if source_type == "pdf" and content_type not in ("application/pdf", "application/octet-stream", ""):
-        raise HTTPException(status_code=422, detail="Content-Type must be application/pdf for PDF uploads.")
+    if source_type == "pdf" and content_type not in (
+        "application/pdf",
+        "application/octet-stream",
+        "",
+    ):
+        raise HTTPException(
+            status_code=422, detail="Content-Type must be application/pdf for PDF uploads."
+        )
 
     # ── Read and validate ─────────────────────────────────────────────────────
     raw = await file.read()
@@ -164,19 +210,97 @@ async def upload_document(
     session.add(job)
     await session.commit()
 
-    redis = await arq.create_pool(arq.connections.RedisSettings.from_dsn(settings.REDIS_URL))
-    await redis.enqueue_job(
-        "run_ingestion_job",
-        document_id=str(doc_id),
-        _job_id=f"ingest:{content_hash}",
-    )
-    await redis.close()
+    await _enqueue_ingestion_job(document_id=str(doc_id), content_hash=content_hash)
 
     return UploadResponse(
         document_id=str(doc_id),
         job_id=str(job.id),
         status="queued",
         message="Upload received. Processing started in background.",
+    )
+
+
+@router.get("/jobs/failed", response_model=FailedJobsResponse)
+async def list_failed_jobs(
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> FailedJobsResponse:
+    """Dead-letter surface: jobs that exhausted arq retries, newest first.
+
+    Failed rows stay queryable (with their error_detail) until re-enqueued
+    or the document is deleted — nothing failure-related is silently dropped.
+    NOTE: registered before /jobs/{job_id} so "failed" isn't parsed as an id.
+    """
+    # Step 1: join jobs to documents for workspace scoping + filenames.
+    result = await session.execute(
+        select(IngestionJob, Document)
+        .join(Document, IngestionJob.document_id == Document.id)
+        .where(
+            Document.workspace_id == workspace_id,
+            IngestionJob.stage == JobStage.failed,
+        )
+        .order_by(IngestionJob.id.desc())
+        .limit(limit)
+    )
+    rows = result.all()
+    # Step 2: shape the client payload.
+    return FailedJobsResponse(
+        jobs=[
+            FailedJobResponse(
+                job_id=str(job.id),
+                document_id=str(job.document_id),
+                stage=job.stage.value,
+                error=job.error_detail,
+                filename=doc.filename,
+            )
+            for job, doc in rows
+        ],
+        total=len(rows),
+    )
+
+
+@router.post("/jobs/{job_id}/retry", response_model=RetryResponse)
+async def retry_failed_job(
+    job_id: uuid.UUID,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    session: AsyncSession = Depends(get_session),
+) -> RetryResponse:
+    """Re-enqueue a failed ingestion job after resetting its rows.
+
+    Only failed jobs are retryable — anything else is a 409. The reset
+    clears stale chunks/citations first, so the retry can never duplicate
+    corpus rows even under at-least-once delivery.
+    """
+    # Step 1: load the job with its document, workspace-scoped (else 404 —
+    # never confirm cross-workspace rows exist).
+    result = await session.execute(
+        select(IngestionJob, Document)
+        .join(Document, IngestionJob.document_id == Document.id)
+        .where(
+            IngestionJob.id == job_id,
+            Document.workspace_id == workspace_id,
+        )
+    )
+    row = result.one_or_none()
+    if row is None:
+        raise NotFoundError(f"Job {job_id} not found in workspace")
+    job, doc = row
+    # Step 2: refuse non-failed jobs — retry is a dead-letter action only.
+    if job.stage != JobStage.failed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job {job_id} is in stage {job.stage.value}, not failed.",
+        )
+    # Step 3: rewind rows to queued (clears stale chunks/citations).
+    await reset_job_for_retry(session, job, doc)
+    # Step 4: re-enqueue under the same deterministic arq job id.
+    await _enqueue_ingestion_job(document_id=str(doc.id), content_hash=doc.content_hash)
+    return RetryResponse(
+        job_id=str(job.id),
+        document_id=str(doc.id),
+        status=JobStage.queued.value,
+        message="Job re-queued for ingestion.",
     )
 
 
@@ -227,7 +351,9 @@ class ChunkResponse(BaseModel):
 async def list_documents(
     workspace_id: uuid.UUID = Depends(get_workspace_id),
     session: AsyncSession = Depends(get_session),
-    processing_status: str | None = Query(default=None, description="Filter by processing status, e.g. done"),
+    processing_status: str | None = Query(
+        default=None, description="Filter by processing status, e.g. done"
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> DocumentListResponse:
@@ -236,9 +362,7 @@ async def list_documents(
     if processing_status is not None:
         conditions.append(Document.processing_status == processing_status)
 
-    count_result = await session.execute(
-        select(func.count(Document.id)).where(*conditions)
-    )
+    count_result = await session.execute(select(func.count(Document.id)).where(*conditions))
     total = count_result.scalar_one()
 
     result = await session.execute(
@@ -309,9 +433,7 @@ async def delete_document(
     # Delete in FK dependency order: citations → chunks → ingestion_job → document.
     await session.execute(
         delete(Citation).where(
-            Citation.chunk_id.in_(
-                select(Chunk.id).where(Chunk.document_id == document_id)
-            )
+            Citation.chunk_id.in_(select(Chunk.id).where(Chunk.document_id == document_id))
         )
     )
     await session.execute(delete(Chunk).where(Chunk.document_id == document_id))
@@ -328,3 +450,8 @@ async def delete_document(
     with contextlib.suppress(Exception):
         await SemanticCache().invalidate_workspace(str(workspace_id))
         await invalidate_retrieval_cache(str(workspace_id))
+
+    # Orphan cleanup: remove the raw upload too — rows alone would leak disk
+    # (or R2 storage). Best-effort like the cache invalidation above.
+    with contextlib.suppress(Exception):
+        delete_ref(doc.storage_path or doc.source_ref)

@@ -54,6 +54,7 @@ Style and structure rules only. Technology *choices* are justified in
 | Rerank | Cohere rerank-v3 |
 | PDF parsing | Docling |
 | Audio transcription | faster-whisper |
+| TTS (hosted) | Groq Orpheus via Model Gateway (`model_gateway.speech`) |
 | Code repo parsing | tree-sitter + gitingest |
 | Chunking | Chonkie |
 | Observability/tracing | Langfuse |

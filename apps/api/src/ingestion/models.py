@@ -80,9 +80,7 @@ class IngestionJob(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("documents.id"), nullable=False, unique=True
     )
-    stage: Mapped[JobStage] = mapped_column(
-        Enum(JobStage), nullable=False, default=JobStage.queued
-    )
+    stage: Mapped[JobStage] = mapped_column(Enum(JobStage), nullable=False, default=JobStage.queued)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Per-stage timestamps as JSONB: {"queued": "...", "extracting": "...", ...}
     stage_timestamps: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
@@ -111,6 +109,10 @@ class Chunk(Base):
     embedding: Mapped[list[float] | None] = mapped_column(
         Vector(settings.EMBEDDING_DIM), nullable=True
     )
+    # Embedding provenance: which model produced `embedding` (e.g.
+    # "embed-v3.0" or "local-hash-256"). Nullable for pre-tracking rows;
+    # /readyz surfaces mixed values as degraded similarity.
+    embedding_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # Inherited metadata from document-level extraction (author, date, category, page, etc.)
     # ponytail: renamed from 'metadata' to avoid SQLAlchemy Base.metadata conflict
     chunk_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)

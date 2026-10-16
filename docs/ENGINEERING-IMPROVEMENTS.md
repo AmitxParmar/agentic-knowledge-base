@@ -10,7 +10,7 @@
 >   core loop is real and measured — see `AGENTS.md` and PRD Non-Goals.
 > - Each item lists *why it matters*, *current gap*, and *concrete fix*.
 >
-> Last updated: 2026-08-03
+> Last updated: 2026-10-16
 
 ---
 
@@ -231,6 +231,8 @@ need this; demos need it too.
 | No file size limit | Reject > N MB at upload (e.g. 50MB) |
 | No MIME/extension validation | Allowlist by `source_type` |
 | No arq retries | `max_tries=3` with backoff on transient errors |
+| No dead-letter surface | `GET /jobs/failed` + `POST /jobs/{id}/retry` with row reset (2026-09-28) |
+| Retries duplicate chunks | delete-before-insert (`reset_document_chunks`, citations first for FK) |
 | New Redis pool per upload | Shared pool / app-state connection |
 | Local filesystem only | Abstract object storage interface early (local now, S3/R2 later) |
 | No re-ingest / delete path | Idempotent reprocess + cascade delete chunks + vectors |
@@ -261,12 +263,20 @@ Already good: single interface, Groq → OpenRouter, tool parsing.
 
 Still missing high-impact pieces:
 
-- **Timeouts + circuit breaker** per provider (avoid hanging WS forever)
-- **Retry only on idempotent/transient** errors with jitter
-- **Token + cost accounting** on `ResearchRun` (even rough)
-- **Structured refusal** when all providers fail (don’t half-stream)
-- **Provider health** in `/health`
-- Remove or gate `/test-llm` behind `APP_DEBUG`
+- [x] **Timeouts + circuit breaker** per provider (avoid hanging WS forever)
+  (per-provider timeout in litellm + 5-fails/30s breaker with cooldown, 2026-09-28)
+- [x] **Retry only on idempotent/transient** errors with jitter
+  (`src/shared/retry.py` — selective by exception type, exponential backoff + jitter, 2026-09-28)
+- [x] **Token + cost accounting** on `ResearchRun` (even rough)
+  (planner + HyDE + synthesis all metered; per-user daily budgets + `/usage`, 2026-09-28;
+  workspace daily total surfaced on `/usage` as `workspace_today_tokens`, 2026-10-16)
+- [x] **Structured refusal** when all providers fail (don’t half-stream)
+  (typed `ProviderError`/`RateLimitError` with user-safe messages;
+  SSE error-frame scan test, 2026-10-16)
+- [x] **Provider health** in `/health`
+  (`/readyz` advisory: circuit-breaker snapshot + embedding-version consistency, 2026-10-16)
+- [x] Remove or gate `/test-llm` behind `APP_DEBUG`
+  (route registered only when `APP_DEBUG=true`, 2026-10-16)
 
 **Effort:** S–M
 
@@ -462,7 +472,7 @@ Do **not** prioritize these over P0/P1 unless a metric demands it:
 | Full RBAC / Vault | Single-tenant until second real user |
 | LiteLLM multi-provider | Gateway already has two providers |
 | Nightly RAGAS/DeepEval | Needs golden set from real usage |
-| Voice UI | Not in MVP success criteria |
+| Voice UI | Built beyond the MVP bar (ADR-006): real-time STT + hosted Groq Orpheus TTS (amended 2026-10-16) |
 
 When ready: write `docs/specs/{critic,planner,memory}.md` **before** code.
 
@@ -474,28 +484,36 @@ These often get skipped in agentic RAG builds:
 
 ### Correctness & data
 
-- [ ] **Embedding versioning** — model name + dim stored with vectors; refuse mixed dims
+- [x] **Embedding versioning** — model name + dim stored with vectors; refuse mixed dims
+  (`chunks.embedding_model` provenance + `/readyz` consistency advisory, 2026-10-16)
 - [ ] **Ingest idempotency** — re-upload same file shouldn’t duplicate silently
-- [ ] **Orphan cleanup** — delete document → delete chunks, vectors, jobs, files
+- [x] **Orphan cleanup** — delete document → delete chunks, vectors, jobs, files
+  (`storage.delete_ref()` + delete-document cleanup + tests, 2026-10-16)
 - [ ] **Clock / timezone** — already UTC-ish; keep it consistent in API responses
 - [ ] **Empty retrieval UX** — “no documents searchable yet” vs “no evidence found”
 - [ ] **Partial failure mid-pipeline** — failed after embed but before persist leaves orphans
 
 ### Distributed systems
 
-- [ ] **At-least-once arq jobs** — make ingest stages re-runnable
-- [ ] **Poison messages** — permanent extract failures shouldn’t retry forever
+- [x] **At-least-once arq jobs** — make ingest stages re-runnable
+  (`reset_document_chunks` delete-before-insert; `GET /jobs/failed` → `POST /jobs/{id}/retry`, 2026-09-28)
+- [x] **Poison messages** — permanent extract failures shouldn’t retry forever
+  (DLQ surface + explicit retry; backoff retries only on transient failures)
 - [ ] **Backpressure** — limit concurrent heavy jobs (whisper/docling)
-- [ ] **WS auth** — today open; plan token query param or cookie when auth lands
+- [x] **WS auth** — today open; plan token query param or cookie when auth lands
+  (`?token=` accepted for browser WS handshakes; header preferred, 2026-10-16)
 - [ ] **Request IDs** — propagate `X-Request-Id` through logs, jobs, traces
 
 ### LLM systems
 
-- [ ] **Prompt/version registry** — system prompts as versioned artifacts
+- [x] **Prompt/version registry** — system prompts as versioned artifacts
+  (`src/shared/prompts.py` + Langfuse stamps + regression tests, 2026-09-28)
 - [x] **Tool argument validation** — reject empty/insane retrieval queries
   (pydantic-validated with raw-question fallback, 2026-09-28)
-- [ ] **Output size caps** — max answer tokens to protect UX and cost
-- [ ] **No CoT leakage** — add a test that scans WS frames for prompt fragments
+- [x] **Output size caps** — max answer tokens to protect UX and cost
+  (`MAX_ANSWER_TOKENS` wired into synthesis, 2026-10-16)
+- [x] **No CoT leakage** — add a test that scans WS frames for prompt fragments
+  (`tests/research/test_sse_leakage.py` — stage vocabulary + safe error frames, 2026-10-16)
 - [x] **Evaluation harness early** — even 10 hand-labeled questions pays off
   (retrieval harness + recorded-answer eval wired with gates, 2026-09-28;
   checked-in golden set still placeholder)
@@ -504,9 +522,12 @@ These often get skipped in agentic RAG builds:
 
 - [ ] **Run history API** already partial — wire UI to `GET /runs/{id}`
 - [ ] **Admin “rebuild vectors” endpoint** (debug-only)
-- [ ] **Disk usage monitoring** for `UPLOAD_DIR`
-- [ ] **Cost ceiling per workspace** (even soft logging)
-- [ ] **Incident playbook** — “embeddings down”, “Redis down”, “Neon cold start”
+- [x] **Disk usage monitoring** for `UPLOAD_DIR`
+  (`/readyz` `upload_disk` advisory, 2026-10-16)
+- [x] **Cost ceiling per workspace** (even soft logging)
+  (per-user daily token budget + `/usage` incl. `workspace_today_tokens`, 2026-10-16)
+- [x] **Incident playbook** — “embeddings down”, “Redis down”, “Neon cold start”
+  (`docs/INCIDENT-PLAYBOOK.md`, 2026-10-16)
 
 ---
 

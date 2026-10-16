@@ -1,19 +1,19 @@
 """
 tests/research/test_voice.py
 -----------------------------
-Purpose:    Tests for the voice channel (VAD endpointing, transcription, TTS
-            streaming, and the WebSocket handshake). The full STT→agent→TTS
-            turn is covered by manual/live testing — these check the state
-            machine, synthesis plumbing, and transport wiring.
-Dependencies: pytest, numpy, faster-whisper (bundled Silero VAD), edge-tts
-Scope:      Detector endpointing, trimming, lazy model-load contracts, /ws/voice.
-
-Note: edge-tts synthesis tests hit Microsoft's service — skipped when
-NO_NETWORK_TESTS is set so CI without egress still runs.
+Purpose:    Tests for the voice channel (VAD endpointing, TTS chunking, and
+            the WebSocket handshake). TTS synthesis runs on the hosted Groq
+            Orpheus model (ADR-006 amendment) — these tests mock the Model
+            Gateway so they run fully offline. The live probe is opt-in via
+            LIVE_TTS_TESTS=1 (requires the Groq model terms to be accepted
+            in the console once).
+Dependencies: pytest, numpy, faster-whisper (bundled Silero VAD)
+Scope:      Detector endpointing, chunk splitting, synthesis plumbing, /ws/voice.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 
@@ -23,15 +23,19 @@ from fastapi.testclient import TestClient
 
 from app.main import create_app
 from src.research.voice_stt import VoiceActivityDetector
-from src.research.voice_tts import tts_chunks
+from src.research.voice_tts import MAX_TTS_CHARS, split_for_tts, tts_chunks
 
 SAMPLE_RATE = 16_000
 WINDOW = 512
+FAKE_WAV = b"RIFF\x24\x00\x00\x00WAVEfmt "
 
 
 def _noise(duration_s: float, seed: int = 42) -> np.ndarray:
     rng = np.random.default_rng(seed)
     return rng.standard_normal(int(duration_s * SAMPLE_RATE)).astype(np.float32)
+
+
+# ── VAD endpointing ───────────────────────────────────────────────────────────
 
 
 def test_detector_closes_turn_after_silence() -> None:
@@ -78,35 +82,103 @@ def test_detector_drops_short_burst() -> None:
     assert detector.flush() is None
 
 
-@pytest.mark.skipif(
-    os.environ.get("NO_NETWORK_TESTS") == "1",
-    reason="edge-tts needs network access",
-)
-def test_tts_streams_bytes() -> None:
-    """tts_chunks must yield non-empty audio byte chunks for real text."""
+# ── TTS chunking (offline) ────────────────────────────────────────────────────
+
+
+def test_split_short_text_single_piece() -> None:
+    assert split_for_tts("Hello there.") == ["Hello there."]
+
+
+def test_split_empty_and_whitespace_yield_nothing() -> None:
+    assert split_for_tts("") == []
+    assert split_for_tts("   \n\t ") == []
+
+
+def test_split_merges_short_sentences() -> None:
+    """Short sentences must travel in as few provider requests as possible."""
+    text = "Yes. No. Maybe. Certainly. Absolutely."
+    assert split_for_tts(text) == [text]
+
+
+def test_split_respects_cap_and_keeps_content() -> None:
+    """Long answers split under the provider cap without dropping sentences."""
+    text = " ".join(
+        f"Sentence number {i} is a little longer than the average here." for i in range(20)
+    )
+    pieces = split_for_tts(text)
+    assert len(pieces) > 1
+    assert all(len(piece) <= MAX_TTS_CHARS for piece in pieces)
+    rejoined = " ".join(pieces)
+    for i in range(20):
+        assert f"Sentence number {i} is" in rejoined
+
+
+def test_split_hard_slices_oversized_token() -> None:
+    """A single token over the cap (e.g. a URL) is hard-sliced, never sent
+    as one oversized request."""
+    token = "x" * 450
+    pieces = split_for_tts(token)
+    assert all(len(piece) <= MAX_TTS_CHARS for piece in pieces)
+    assert sum(len(piece) for piece in pieces) == 450
+
+
+@pytest.fixture()
+def fake_speech(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, str | None]]:
+    """Swap the hosted synthesis for an offline recorder returning fake WAVs."""
+    calls: list[dict[str, str | None]] = []
+
+    async def _fake(text: str, *, voice: str | None = None, model: str | None = None) -> bytes:
+        calls.append({"text": text, "voice": voice})
+        return FAKE_WAV + text.encode()
+
+    monkeypatch.setattr("src.research.voice_tts.speech", _fake)
+    return calls
+
+
+def test_tts_yields_one_wav_per_piece(fake_speech: list[dict[str, str | None]]) -> None:
+    """tts_chunks must yield one non-empty WAV per piece, in order, with
+    every provider request under the character cap."""
+    text = " ".join(f"Point {i} covers a distinct part of the answer." for i in range(15))
 
     async def _collect():
-        chunks = [b async for b in tts_chunks("Hello there.", rate="+0%")]
-        return chunks
-
-    import asyncio
+        return [chunk async for chunk in tts_chunks(text)]
 
     chunks = asyncio.run(_collect())
-    assert len(chunks) >= 1
-    assert all(isinstance(c, bytes) and len(c) > 0 for c in chunks)
+    assert len(chunks) == len(fake_speech) >= 2
+    assert all(chunk.startswith(b"RIFF") for chunk in chunks)
+    assert all(len(call["text"] or "") <= MAX_TTS_CHARS for call in fake_speech)
+    # Order is preserved: the first request carries the first sentence.
+    assert (fake_speech[0]["text"] or "").startswith("Point 0")
+
+
+def test_tts_empty_text_never_calls_provider(fake_speech: list[dict[str, str | None]]) -> None:
+    async def _collect():
+        return [chunk async for chunk in tts_chunks("   ")]
+
+    assert asyncio.run(_collect()) == []
+    assert fake_speech == []
+
+
+# ── Live probe (opt-in) ───────────────────────────────────────────────────────
 
 
 @pytest.mark.skipif(
-    os.environ.get("NO_NETWORK_TESTS") == "1",
-    reason="edge-tts needs network access",
+    os.environ.get("LIVE_TTS_TESTS") != "1",
+    reason="set LIVE_TTS_TESTS=1 (and accept Groq model terms) to run the live probe",
 )
-def test_tts_empty_text_yields_nothing() -> None:
-    import asyncio
+def test_tts_live_synthesizes_wav() -> None:
+    """End-to-end synthesis against Groq — run manually after accepting the
+    Orpheus model terms in the Groq console."""
 
     async def _collect():
-        return [b async for b in tts_chunks("   ")]
+        return [chunk async for chunk in tts_chunks("Hello from the research terminal.")]
 
-    assert asyncio.run(_collect()) == []
+    chunks = asyncio.run(_collect())
+    assert chunks, "provider returned no audio"
+    assert all(chunk[:4] == b"RIFF" for chunk in chunks)
+
+
+# ── WebSocket handshake ───────────────────────────────────────────────────────
 
 
 def test_voice_ws_sends_ready_frame() -> None:

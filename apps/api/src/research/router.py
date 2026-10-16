@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.stub import get_user_id, get_workspace_id
 from src.research.agent import run_agent
 from src.research.models import ResearchRun, RunStatus
+from src.research.usage import BudgetExceededError, get_budget_status, workspace_today_tokens
 from src.retrieval.pipeline import RetrievalError
 from src.shared.database import get_session
 from src.shared.model_gateway import ProviderError, RateLimitError
@@ -56,6 +57,7 @@ ERROR_CODES: dict[str, str] = {
     "PROVIDER_ERROR": "The model provider is unavailable. Please check provider status and try again.",
     "RETRIEVAL_ERROR": "An error occurred while searching the documents. Please try again.",
     "TOOL_PARSE_ERROR": "The model produced a malformed tool call. Please try again.",
+    "BUDGET_EXCEEDED": "Daily token budget exhausted. Please try again tomorrow.",
     "AGENT_ERROR": "An error occurred during the research run.",
 }
 
@@ -67,6 +69,8 @@ def _error_code(exc: Exception) -> str:
         return "PROVIDER_ERROR"
     if isinstance(exc, RetrievalError):
         return "RETRIEVAL_ERROR"
+    if isinstance(exc, BudgetExceededError):
+        return "BUDGET_EXCEEDED"
     if isinstance(exc, json.JSONDecodeError):
         return "TOOL_PARSE_ERROR"
     return "AGENT_ERROR"
@@ -214,7 +218,10 @@ async def research_websocket(
     except Exception as exc:
         logger.exception("research run failed")
         logfire.error("research.run.failed", error=str(exc))
-        await emit_error(ws, "An error occurred during the research run.")
+        # Step 1: typed user-safe message (budget, provider, retrieval...).
+        # Step 2: never leak internals — fall back to the generic message.
+        code = _error_code(exc)
+        await emit_error(ws, ERROR_CODES[code])
         try:
             if run:
                 run.status = RunStatus.failed
@@ -312,11 +319,22 @@ async def agui_event_stream(
     session.add(run)
     await session.flush()
 
-    async def on_stage(stage: ResearchStage) -> None:
-        # Progress stages travel as AG-UI CUSTOM events (name/value), not text
-        # deltas, so they render in the progress strip instead of inside the
-        # answer bubble.
-        await queue.put({"type": "CUSTOM", "name": "stage", "value": {"stage": stage.value}})
+    # Tracks streamed answer deltas: when synthesis produced none (empty
+    # stream edge), the full answer is sent once below instead.
+    deltas_seen = [0]
+
+    async def on_stage(stage: ResearchStage | str) -> None:
+        # Step 1: progress stages travel as AG-UI CUSTOM events (name/value),
+        # not text deltas, so they render in the progress strip instead of
+        # inside the answer bubble. NOTE: ResearchStage is a str enum, so it
+        # must be matched before the plain-str branch below.
+        if isinstance(stage, ResearchStage):
+            await queue.put({"type": "CUSTOM", "name": "stage", "value": {"stage": stage.value}})
+            return
+        # Step 2: raw strings are synthesis text deltas — forward them as
+        # AG-UI content events so the answer paints token-by-token.
+        deltas_seen[0] += 1
+        await queue.put({"type": "TEXT_MESSAGE_CONTENT", "messageId": message_id, "delta": stage})
 
     async def run_agent_task() -> Any:
         return await run_agent(
@@ -370,7 +388,10 @@ async def agui_event_stream(
                 "citations": _citation_payload(result.citations),
             },
         }
-        yield {"type": "TEXT_MESSAGE_CONTENT", "messageId": message_id, "delta": result.answer}
+        # The live path already streamed the answer delta-by-delta; send the
+        # whole answer only when nothing was streamed (empty-stream edge).
+        if deltas_seen[0] == 0 and result.answer:
+            yield {"type": "TEXT_MESSAGE_CONTENT", "messageId": message_id, "delta": result.answer}
         yield {"type": "TEXT_MESSAGE_END", "messageId": message_id}
         yield {"type": "RUN_FINISHED", "threadId": str(run_id), "runId": str(run_id)}
 
@@ -468,6 +489,7 @@ class RunSummary(BaseModel):
     question: str
     status: str
     created_at: str
+    token_count: int = 0
 
 
 class RunListResponse(BaseModel):
@@ -504,6 +526,7 @@ async def list_runs(
                 question=run.question,
                 status=run.status.value,
                 created_at=run.created_at.isoformat(),
+                token_count=run.token_count,
             )
             for run in runs
         ],
@@ -536,6 +559,32 @@ async def get_run(
         "question": run.question,
         "answer": run.answer,
         "status": run.status.value,
+        "token_count": run.token_count,
         "citations": [{"chunk_id": str(c.chunk_id)} for c in run.citations],
         "created_at": run.created_at.isoformat(),
+    }
+
+
+@router.get("/usage")
+async def usage_summary(
+    user_id: uuid.UUID = Depends(get_user_id),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Per-user token spend vs the daily budget (powers the usage dashboard).
+
+    Also reports the workspace-wide total — the soft cost ceiling for the
+    workspace as a whole (hard daily limits are enforced per user).
+    """
+    # Step 1: aggregate spend in both windows + the effective budget.
+    status = await get_budget_status(session, user_id)
+    workspace_today = await workspace_today_tokens(session, workspace_id)
+    # Step 2: shape the client payload (JSON-safe; budget may be null).
+    return {
+        "today_tokens": status.today_tokens,
+        "month_tokens": status.month_tokens,
+        "daily_budget": status.daily_budget,
+        "over_budget": status.over_budget,
+        "pct_used": status.pct_used,
+        "workspace_today_tokens": workspace_today,
     }

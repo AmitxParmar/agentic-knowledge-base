@@ -193,7 +193,7 @@ async def pipeline_rank_fn(question: str, workspace_id: str) -> tuple[list[str],
     from src.shared.database import SessionLocal
 
     async with SessionLocal() as session:
-        candidates, final = await retrieve_with_ablation(
+        candidates, final, _hyde_tokens = await retrieve_with_ablation(
             question, _uuid.UUID(workspace_id), session
         )
     return [c.chunk_id for c in candidates], [c.chunk_id for c in final]

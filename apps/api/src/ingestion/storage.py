@@ -59,6 +59,7 @@ def store(
         key = f"{_PREFIX}/{workspace_id}/{document_id}_{filename}"
         if isinstance(data, bytes):
             from io import BytesIO
+
             _r2_client().upload_fileobj(BytesIO(data), settings.R2_BUCKET, key)
         else:
             _r2_client().upload_fileobj(data, settings.R2_BUCKET, key)
@@ -75,6 +76,25 @@ def store(
             shutil.copyfileobj(data, buffer)
     logger.info("storage.store: local path=%s", dest)
     return str(dest)
+
+
+def delete_ref(storage_ref: str) -> None:
+    """Remove a stored object (raw upload) — best-effort, idempotent.
+
+    Local references are unlinked; R2 keys are deleted from the bucket.
+    Callers wrap in suppress(): failing to remove the file must never fail
+    the row deletion that already happened.
+    """
+    # Step 1: R2 objects are addressed by their key, not the filesystem.
+    if settings.r2_enabled and storage_ref.startswith(f"{_PREFIX}/"):
+        _r2_client().delete_object(Bucket=settings.R2_BUCKET, Key=storage_ref)
+        logger.info("storage.delete: R2 key=%s", storage_ref)
+        return
+    # Step 2: local files — missing is fine (idempotent delete).
+    path = Path(storage_ref)
+    if path.exists():
+        path.unlink()
+        logger.info("storage.delete: local path=%s", path)
 
 
 def open_ref(storage_ref: str) -> Path:

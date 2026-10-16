@@ -26,6 +26,7 @@ from src.research.agent import (
     _synthesize_node,
 )
 from src.retrieval.pipeline import RetrievedChunk
+from src.shared.model_gateway import StreamUsage
 from src.shared.progress import ResearchStage
 
 # ── _parse_plan ───────────────────────────────────────────────────────────────
@@ -73,13 +74,17 @@ def _state(**overrides: Any) -> AgentState:
 async def test_planner_injects_plan_message(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
-    async def fake_complete(*args: object, **kwargs: Any) -> str:
+    async def fake_complete_with_tools(*args: object, **kwargs: Any) -> Any:
         captured.update(kwargs)
-        return '["refund window", "EU exceptions"]'
+        return SimpleNamespace(
+            content='["refund window", "EU exceptions"]',
+            tool_calls=None,
+            usage=SimpleNamespace(total_tokens=12),
+        )
 
     monkeypatch.setattr(
-        "src.research.agent.complete",
-        fake_complete,
+        "src.research.agent.complete_with_tools",
+        fake_complete_with_tools,
     )
 
     result = await _planner_node(_state(), RunnableConfig(configurable={}))
@@ -91,13 +96,14 @@ async def test_planner_injects_plan_message(monkeypatch: pytest.MonkeyPatch) -> 
     assert len(plan_messages) == 1
     assert "- refund window" in plan_messages[0]["content"]
     assert captured["route"] == "small"
+    assert result["tokens_used"] == 12
 
 
 async def test_planner_falls_back_on_provider_error(monkeypatch: pytest.MonkeyPatch) -> None:
     async def boom(*args: object, **kwargs: object) -> object:
         raise RuntimeError("provider down")
 
-    monkeypatch.setattr("src.research.agent.complete", boom)
+    monkeypatch.setattr("src.research.agent.complete_with_tools", boom)
 
     result = await _planner_node(_state(), RunnableConfig(configurable={}))
 
@@ -106,8 +112,14 @@ async def test_planner_falls_back_on_provider_error(monkeypatch: pytest.MonkeyPa
 
 async def test_planner_falls_back_on_unparseable_output(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "src.research.agent.complete",
-        AsyncMock(return_value="I cannot answer that."),
+        "src.research.agent.complete_with_tools",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content="I cannot answer that.",
+                tool_calls=None,
+                usage=SimpleNamespace(total_tokens=7),
+            )
+        ),
     )
 
     result = await _planner_node(_state(), RunnableConfig(configurable={}))
@@ -130,22 +142,19 @@ async def test_synthesize_passes_through_existing_answer(monkeypatch: pytest.Mon
 async def test_synthesize_generates_when_loop_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
-    async def fake_complete_with_tools(messages: list, tools: Any, **kwargs: object) -> Any:
-        captured["tools"] = tools
+    async def fake_stream(messages: list, **kwargs: object) -> Any:
         captured["last_message"] = messages[-1]
         captured.update(kwargs)
-        return SimpleNamespace(
-            content="Best-effort answer.", usage=SimpleNamespace(total_tokens=42)
-        )
+        yield "Best-effort answer."
+        yield StreamUsage(total_tokens=42, prompt_tokens=30, completion_tokens=12)
 
-    monkeypatch.setattr("src.research.agent.complete_with_tools", fake_complete_with_tools)
+    monkeypatch.setattr("src.research.agent.complete_stream", fake_stream)
 
     state = _state(iterations=MAX_ITERATIONS)
     result = await _synthesize_node(state, RunnableConfig(configurable={}))
 
     assert result["answer"] == "Best-effort answer."
     assert result["tokens_used"] == 42
-    assert captured["tools"] is None
     assert captured["route"] == "synthesis"
     assert "final answer" in captured["last_message"]["content"]
 
@@ -189,15 +198,17 @@ class _FakeToolCall:
 
 def test_full_graph_produces_cited_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     """plan → research (one tool round-trip) → answer, all offline."""
-    monkeypatch.setattr(
-        "src.research.agent.complete",
-        AsyncMock(return_value='["refund window"]'),
-    )
-
     calls: list[list[dict[str, Any]]] = []
 
     async def fake_complete_with_tools(messages: list, tools: Any, **kwargs: object) -> Any:
         calls.append([dict(m) for m in messages])
+        if tools is None and not any(m.get("role") == "assistant" for m in messages):
+            # Planner call (no tools requested, no assistant turn yet).
+            return SimpleNamespace(
+                content='["refund window"]',
+                tool_calls=[],
+                usage=SimpleNamespace(total_tokens=5),
+            )
         if any(m.get("role") == "assistant" for m in messages):
             # Second iteration: evidence is in context — write the answer.
             return SimpleNamespace(
@@ -213,6 +224,12 @@ def test_full_graph_produces_cited_answer(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr("src.research.agent.complete_with_tools", fake_complete_with_tools)
 
+    async def fake_stream(messages: list, **kwargs: object) -> Any:
+        yield "Refunds take 30 days [1]."
+        yield StreamUsage(total_tokens=20, prompt_tokens=15, completion_tokens=5)
+
+    monkeypatch.setattr("src.research.agent.complete_stream", fake_stream)
+
     chunk = RetrievedChunk(
         chunk_id=str(uuid.uuid4()),
         document_id=str(uuid.uuid4()),
@@ -221,7 +238,7 @@ def test_full_graph_produces_cited_answer(monkeypatch: pytest.MonkeyPatch) -> No
         relevance_score=0.9,
         position=1,
     )
-    monkeypatch.setattr("src.research.agent.retrieve", AsyncMock(return_value=[chunk]))
+    monkeypatch.setattr("src.research.agent.retrieve", AsyncMock(return_value=([chunk], 0)))
 
     stages: list[ResearchStage] = []
 
@@ -242,10 +259,14 @@ def test_full_graph_produces_cited_answer(monkeypatch: pytest.MonkeyPatch) -> No
     assert final["citations"][0]["chunk_id"] == chunk.chunk_id
     assert final["answer"] == "Refunds take 30 days [1]."
     assert final["iterations"] == 1
-    assert final["tokens_used"] == 55  # 15 (tool turn) + 20 (draft) + 20 (final)
+    assert final["tokens_used"] == 60  # 5 (planner) + 15 (tool turn) + 20 (draft) + 20 (final)
 
-    # Fixed ux.md vocabulary only.
-    assert stages == [ResearchStage.SEARCHING, ResearchStage.REVIEWING]
+    # Fixed ux.md vocabulary only (plus the streamed answer delta).
+    assert [s for s in stages if isinstance(s, ResearchStage)] == [
+        ResearchStage.SEARCHING,
+        ResearchStage.REVIEWING,
+    ]
+    assert "Refunds take 30 days [1]." in stages
 
 
 def asyncio_run_graph(graph: Any, state: AgentState, config: RunnableConfig) -> dict[str, Any]:

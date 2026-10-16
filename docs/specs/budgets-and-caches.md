@@ -59,3 +59,20 @@ ADR-007 degradation pattern. No new packages.
 Dollar-cost metering with pricing tables, cross-process embedding
 caches, Redis Stack semantic similarity for retrieval-cache keys
 (exact-hash only today).
+
+## Addendum — shipped 2026-09-28
+
+- **Full token accounting:** planner, HyDE, researcher, and synthesis usage
+  all accumulate into `ResearchRun.token_count` (previously planner + HyDE
+  were dropped). Gateway usage split (`prompt/completion/total`) is typed.
+- **Per-user daily budgets:** `users.daily_token_budget` (nullable =
+  unlimited; instance default via `DEFAULT_DAILY_TOKEN_BUDGET`), enforced
+  once in `run_agent` so SSE, WebSocket, and voice share the gate.
+  Exhaustion raises `BudgetExceededError` (HTTP 429 / `BUDGET_EXCEEDED`
+  event); 80% usage emits a logfire warning.
+- **Usage endpoint + dashboard:** `GET /api/research/usage` returns
+  today/month spend, budget, and ratio; the web `/usage` page renders it.
+- **Provider circuit breaker** (reliability, adjacent to budgets):
+  `src/shared/circuit_breaker.py` — 5 failures/30s opens per provider,
+  60s cooldown, half-open probe; the gateway leads with the fallback or
+  fails fast when both are tripped.

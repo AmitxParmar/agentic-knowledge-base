@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import logfire
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import src.shared.models  # noqa: F401 — register all ORM models before any query
@@ -25,7 +25,8 @@ from src.ingestion.extractors import extract
 from src.ingestion.models import Chunk, Document, IngestionJob, JobStage
 from src.ingestion.storage import open_ref
 from src.observability.setup import traced_observation
-from src.retrieval.embedder import embed_texts
+from src.research.models import Citation
+from src.retrieval.embedder import embed_texts, embedding_model_label
 from src.shared.database import SessionLocal
 from src.shared.rate_limit import indexing_semaphore, pdf_parse_semaphore
 from src.shared.retrieval_cache import invalidate_retrieval_cache
@@ -90,7 +91,21 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> int:
         vectors = await embed_texts([chunk.text for chunk in chunk_results])
 
     with logfire.span("ingestion.persist", chunk_count=len(chunk_results)):
+        # Step 0: clear rows from any previous attempt. Without this, a retry
+        # that runs after a committed run re-inserts every chunk with fresh
+        # ids (at-least-once arq delivery) — silent corpus duplication.
+        cleared = await reset_document_chunks(session, document_id)
+        if cleared:
+            logfire.info(
+                "ingestion.reingest_cleared",
+                document_id=str(document_id),
+                cleared_chunks=cleared,
+            )
         chunk_rows: list[Chunk] = []
+        # Step 0c: stamp every row with the embedding provenance for this
+        # process config — mixed models in one vector column degrade
+        # similarity silently, so the label travels with the vector.
+        embed_model = embedding_model_label()
         for chunk_result, vector in zip(chunk_results, vectors, strict=True):
             chunk_id = uuid.uuid4()
             chunk_row = Chunk(
@@ -100,6 +115,7 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> int:
                 text=chunk_result.text,
                 turbovec_id=str(chunk_id),
                 embedding=vector,
+                embedding_model=embed_model,
                 chunk_metadata=chunk_result.metadata,
             )
             session.add(chunk_row)
@@ -113,6 +129,50 @@ async def _run_pipeline(session: AsyncSession, document_id: uuid.UUID) -> int:
     await invalidate_retrieval_cache(str(doc.workspace_id))
     logfire.info("ingestion.done", document_id=str(document_id), chunks=len(chunk_rows))
     return len(chunk_rows)
+
+
+async def reset_document_chunks(session: AsyncSession, document_id: uuid.UUID) -> int:
+    """Delete a document's chunks (and their citations) before a (re-)ingest.
+
+    Citation rows point at chunk ids, so they go first or the chunk delete
+    violates the FK. Returns the number of chunk rows removed (0 on a clean
+    first ingest). Makes every pipeline stage re-runnable under arq's
+    at-least-once delivery.
+    """
+    # Step 1: citations reference chunk ids — remove them first (FK order).
+    await session.execute(
+        delete(Citation).where(
+            Citation.chunk_id.in_(select(Chunk.id).where(Chunk.document_id == document_id))
+        )
+    )
+    # Step 2: the chunks themselves; fresh ids are minted on re-insert.
+    result = await session.execute(delete(Chunk).where(Chunk.document_id == document_id))
+    await session.flush()
+    return getattr(result, "rowcount", 0) or 0
+
+
+async def reset_job_for_retry(session: AsyncSession, job: IngestionJob, doc: Document) -> int:
+    """Reset a failed job + document to queued for manual re-enqueue.
+
+    Clears stale chunks/citations, wipes the failure, and recommits — the
+    caller re-enqueues the arq job afterwards. Returns cleared chunk count.
+    """
+    # Step 1: clear stale output rows so the retry starts from a clean corpus.
+    cleared = await reset_document_chunks(session, doc.id)
+    # Step 2: rewind job + document to queued with a fresh timestamp trail.
+    now = datetime.now(UTC).isoformat()
+    job.stage = JobStage.queued
+    job.error_detail = None
+    job.stage_timestamps = {JobStage.queued.value: now}
+    doc.processing_status = JobStage.queued
+    await session.commit()
+    logfire.info(
+        "ingestion.retry_reset",
+        document_id=str(doc.id),
+        job_id=str(job.id),
+        cleared_chunks=cleared,
+    )
+    return cleared
 
 
 async def _extract_with_timeout(source_path: Any, source_type: str) -> Any:

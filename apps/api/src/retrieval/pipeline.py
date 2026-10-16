@@ -18,7 +18,8 @@ from src.ingestion.models import Chunk, Document
 from src.observability.setup import traced_observation
 from src.retrieval.embedder import embed_query, rerank
 from src.retrieval.vector_index import VectorSearchResult, vector_search
-from src.shared.model_gateway import ModelGatewayError, complete
+from src.shared.model_gateway import ModelGatewayError, complete_with_tools
+from src.shared.prompts import get_prompt
 from src.shared.retrieval_cache import get_cached_chunks, store_chunks
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,12 @@ async def retrieve(
     session: AsyncSession,
     *,
     top_k: int = _TOP_K_FINAL,
-) -> list[RetrievedChunk]:
+) -> tuple[list[RetrievedChunk], int]:
+    """Run the pipeline, returning (selected chunks, HyDE LLM tokens spent).
+
+    The token count lets callers meter the full run — HyDE generation is an
+    LLM call whose usage would otherwise vanish from cost accounting.
+    """
     try:
         # Root observation for standalone retrieval calls (HyDE generation,
         # embed/rerank children nest under it via the shared OTel context).
@@ -67,7 +73,7 @@ async def retrieve(
             ) as observation,
             logfire.span("retrieval.pipeline", workspace_id=str(workspace_id)),
         ):
-            candidates, selected = await retrieve_with_ablation(
+            candidates, selected, hyde_tokens = await retrieve_with_ablation(
                 question, workspace_id, session, top_k=top_k
             )
             if not candidates:
@@ -79,7 +85,7 @@ async def retrieve(
                     "candidates": len(candidates),
                 },
             )
-            return selected
+            return selected, hyde_tokens
     except Exception as exc:
         # Model-provider failures bubble up as typed gateway errors so routers
         # can map them to PROVIDER_ERROR / RATE_LIMIT. Everything else is an
@@ -96,13 +102,15 @@ async def retrieve_with_ablation(
     *,
     pool: int = _CANDIDATE_POOL,
     top_k: int = _TOP_K_FINAL,
-) -> tuple[list[RetrievedChunk], list[RetrievedChunk]]:
-    """Run the pipeline and return both ranking stages for offline evaluation.
+) -> tuple[list[RetrievedChunk], list[RetrievedChunk], int]:
+    """Run the pipeline and return ranking stages plus HyDE LLM tokens.
 
-    Returns ``(fusion_candidates, final_selection)``: the fusion-ordered
-    candidate pool *before* reranking (RRF order) and the post-rerank,
-    deduplicated final selection. The eval harness computes ΔNDCG between
-    the two orders to verify the reranker actually improves relevance.
+    Returns ``(fusion_candidates, final_selection, hyde_tokens)``: the
+    fusion-ordered candidate pool *before* reranking (RRF order), the
+    post-rerank deduplicated final selection, and the LLM tokens spent on
+    the HyDE rewrite (0 on cache hit or HyDE failure). The eval harness
+    computes ΔNDCG between the two orders to verify the reranker actually
+    improves relevance.
 
     A retrieval-cache hit returns the cached selection as both stages
     (the original fusion order is not cached — ΔNDCG for cached cases
@@ -111,12 +119,12 @@ async def retrieve_with_ablation(
     cached = await get_cached_chunks(str(workspace_id), question)
     if cached is not None:
         chunks = [RetrievedChunk(**c) for c in cached]
-        return chunks, chunks
+        return chunks, chunks, 0
 
-    expanded = await _hyde_expand(question)
+    expanded, hyde_tokens = await _hyde_expand(question)
     candidates = await _hybrid_search(expanded, workspace_id, session, pool=pool)
     if not candidates:
-        return [], []
+        return [], [], hyde_tokens
 
     ranked = await _rerank_candidates(question, candidates)
     selected = _dedup_and_select(ranked, top_k)
@@ -137,30 +145,41 @@ async def retrieve_with_ablation(
             for c in selected
         ],
     )
-    return candidates, selected
+    return candidates, selected, hyde_tokens
 
 
-async def _hyde_expand(question: str) -> str:
+async def _hyde_expand(question: str) -> tuple[str, int]:
+    """Rewrite the question as a hypothetical answer; return (text, LLM tokens).
+
+    The prompt text is versioned (retrieval.hyde) and its revision travels
+    to Langfuse with the generation. The token count lets callers meter the
+    full run. Failures and empty generations fall back to the raw question
+    with zero tokens spent.
+    """
+    hyde_prompt = get_prompt("retrieval.hyde")
     prompt = [
-        {
-            "role": "system",
-            "content": (
-                "Write a concise hypothetical answer to the user's question as if the "
-                "relevant document were available. Keep it factual and 2-3 sentences."
-            ),
-        },
+        {"role": "system", "content": hyde_prompt.text},
         {"role": "user", "content": question},
     ]
     try:
-        expanded = await complete(prompt, route="small", temperature=0.1, max_tokens=256)
+        response = await complete_with_tools(
+            prompt,
+            tools=None,
+            route="small",
+            temperature=0.1,
+            max_tokens=256,
+            prompt_version=hyde_prompt.label,
+        )
     except Exception:
         logger.debug("HyDE expansion failed, falling back to original question", exc_info=True)
-        return question
-    # Guard Cohere 400: complete() returns "" on empty content; an empty HyDE
-    # query would embed as [""] which Cohere rejects outright (see embedder.py).
-    if not expanded or not expanded.strip():
-        return question
-    return expanded
+        return question, 0
+    # Guard Cohere 400: an empty HyDE query would embed as [""] which Cohere
+    # rejects outright (see embedder.py).
+    expanded = response.content or ""
+    if not expanded.strip():
+        return question, 0
+    tokens = getattr(response.usage, "total_tokens", 0) or 0
+    return expanded, tokens
 
 
 async def _hybrid_search(

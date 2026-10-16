@@ -26,6 +26,7 @@ from src.research.agent import (
     _parse_plan,
     _researcher_node,
     _RetrieveArguments,
+    _synthesize_node,
     _validate_citation_markers,
     _validated_retrieval_query,
     run_agent,
@@ -165,7 +166,7 @@ async def test_researcher_numbers_second_tool_call_globally(
     monkeypatch.setattr("src.research.agent.complete_with_tools", AsyncMock(return_value=response))
     monkeypatch.setattr(
         "src.research.agent.retrieve",
-        AsyncMock(side_effect=[[_chunk("first")], [_chunk("second")]]),
+        AsyncMock(side_effect=[([_chunk("first")], 0), ([_chunk("second")], 0)]),
     )
 
     state = _research_state()
@@ -271,3 +272,84 @@ async def test_run_agent_blocks_system_prompt_leak(monkeypatch: pytest.MonkeyPat
     )
 
     assert result.answer == _SYSTEM_PROMPT_LEAK_RESPONSE
+
+
+# ── synthesize streaming ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_synthesize_streams_deltas_and_counts_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Step 1: fake a two-delta stream with a usage trailer.
+    from src.shared.model_gateway import StreamUsage
+
+    async def fake_stream(*args: Any, **kwargs: Any) -> Any:
+        yield "Refunds take "
+        yield "30 days [1]."
+        yield StreamUsage(total_tokens=25, prompt_tokens=15, completion_tokens=10)
+
+    monkeypatch.setattr("src.research.agent.complete_stream", fake_stream)
+
+    # Step 2: capture the live deltas forwarded through the callback.
+    deltas: list[str] = []
+
+    async def callback(part: Any) -> None:
+        deltas.append(part)
+
+    state = _research_state()
+    config = {"configurable": {"_stage_callback": callback}}
+    out = await _synthesize_node(state, config)  # type: ignore[arg-type]
+
+    # Step 3: full text persisted, deltas forwarded, usage metered.
+    assert out["answer"] == "Refunds take 30 days [1]."
+    assert deltas == ["Refunds take ", "30 days [1]."]
+    assert out["tokens_used"] == 25
+
+
+@pytest.mark.asyncio
+async def test_synthesize_empty_stream_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_stream(*args: Any, **kwargs: Any) -> Any:
+        if False:
+            yield ""
+
+    monkeypatch.setattr("src.research.agent.complete_stream", fake_stream)
+    state = _research_state()
+    config = {"configurable": {}}
+    out = await _synthesize_node(state, config)  # type: ignore[arg-type]
+    assert out["answer"] == "Insufficient evidence to answer."
+
+
+# ── guardrail wiring in run_agent ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_agent_redacts_secrets_from_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Step 1: the model echoes a chunk containing a key-like string...
+    final_state = {
+        "run_id": str(uuid.uuid4()),
+        "workspace_id": str(uuid.uuid4()),
+        "question": "what is the key",
+        "messages": [],
+        "citations": [{"relevance_score": 0.9, "chunk_id": str(uuid.uuid4())}],
+        "answer": "The deploy key is sk-abcdefghijklmnopqrstuvwx [1].",
+        "iterations": 1,
+        "tokens_used": 100,
+    }
+    mock_graph = AsyncMock()
+    mock_graph.ainvoke = AsyncMock(return_value=final_state)
+    monkeypatch.setattr("src.research.agent._get_graph", AsyncMock(return_value=mock_graph))
+    monkeypatch.setattr("src.research.agent._persist_citations", AsyncMock())
+
+    # Step 2: ...the delivered answer must not contain the raw secret.
+    result = await run_agent(
+        question="what is the key",
+        workspace_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        session=AsyncMock(),
+    )
+    assert "sk-abcdefghijklmnopqrstuvwx" not in result.answer
+    assert "[REDACTED]" in result.answer
+    assert "[1]" in result.answer

@@ -7,7 +7,7 @@ Purpose:    Bidirectional real-time voice endpoint for the research agent.
 Protocol:
   Client → server  binary:  raw float32 PCM, 16 kHz mono (mic frames)
   Client → server  text:    {"action": "start"} | {"action": "stop"}
-  Server → client  binary:  MP3 audio chunks for playback (TTS)
+  Server → client  binary:  WAV audio chunks for playback (TTS)
   Server → client  text:    {"type": "ready"} | {"type": "transcript", "text"}
                             {"type": "answer", "run_id", "text", "citations"}
                             {"type": "latency", "stages"} | {"type": "done"}
@@ -42,6 +42,7 @@ from app.settings import settings
 from src.auth.stub import get_user_id, get_workspace_id
 from src.research.agent import run_agent
 from src.research.models import ResearchRun, RunStatus
+from src.research.usage import BudgetExceededError
 from src.research.voice_stt import VoiceActivityDetector, transcribe_utterance
 from src.research.voice_tts import tts_chunks
 from src.shared.database import get_session
@@ -111,6 +112,9 @@ class _Pipeline:
             await self._send("done")
         except asyncio.CancelledError:
             raise
+        except BudgetExceededError as exc:
+            logger.warning("voice_router: budget refused the run")
+            await self._send("error", message=exc.message)
         except Exception:
             logger.exception("voice_router: pipeline failed")
             await self._send(
@@ -128,8 +132,12 @@ class _Pipeline:
         await self._session.flush()
         self._run_id = run.id
 
-        async def on_stage(stage: ResearchStage) -> None:
-            await self._send("stage", stage=stage.value)
+        async def on_stage(stage: ResearchStage | str) -> None:
+            # Voice sends the final answer once at the end; streamed text
+            # deltas are not spoken piecemeal. NOTE: ResearchStage is a str
+            # enum — match it before the plain-str branch.
+            if isinstance(stage, ResearchStage):
+                await self._send("stage", stage=stage.value)
 
         with logfire.span("voice.run", run_id=str(run.id), question=question[:80]):
             result = await run_agent(
@@ -168,7 +176,7 @@ async def voice_websocket(
     workspace_id: uuid.UUID = Depends(get_workspace_id),
     user_id: uuid.UUID = Depends(get_user_id),
 ) -> None:
-    """Bidirectional voice research session. Binary PCM in, MP3 + JSON out."""
+    """Bidirectional voice research session. Binary PCM in, WAV + JSON out."""
     if not await _check_voice_rate_limit(ws):
         await ws.accept()
         await ws.send_text(

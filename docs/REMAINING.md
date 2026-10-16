@@ -4,7 +4,7 @@
 > `docs/latest-architecture.html` (V1 design), `docs/PRD.md` (MVP boundary),
 > `ROADMAP.md`, specs, and the current `apps/` code.
 >
-> Last updated: 2026-08-13
+> Last updated: 2026-10-16
 
 ## Status legend
 
@@ -65,7 +65,7 @@
 |---|---|---|
 | Minimal Next.js chat + upload (`apps/web`) | Partial / Done | Upload, job poll, SSE Q&A (TanStack AI), citations UI exist |
 | Live multi-agent trajectory UI | Deferred | `ux.md`: MVP shows stage names only |
-| Voice UI | Remaining | Architecture shows “Chat / Voice”; not in MVP |
+| Voice UI | **Done** (2026-10-16) | `/api/research/ws/voice` — bidirectional STT→agent→TTS (ADR-006); TTS swapped from edge-tts to hosted Groq Orpheus (needs one-time Groq model terms acceptance) |
 | API / CLI client polish | Partial | REST + SSE exist; no dedicated CLI package |
 | `apps/docs` product docs site | Remaining | Still Turborepo starter template |
 | Root `README` product docs | Remaining | Still generic Turborepo starter |
@@ -87,18 +87,18 @@
 | Ingestion + research routers mounted | Done | |
 | Auth (JWT / multi-user) | **Done** (single-user) | ADR-008: `AUTH_MODE=jwt` Bearer tokens via `src/auth/jwt.py` + `scripts/mint_token.py`; stub mode is the default for local runs |
 | Rate limiting | **Done** | Redis fixed-window; upload 5/min, chat 20/min per IP (`src/shared/rate_limit.py`) |
-| Input Guardrail (LLM Guard) | Deferred | PRD Non-Goals |
+| Input Guardrail (DIY scanners) | **Done** | ADR-010: injection telemetry + secret redaction in `src/shared/prompt_safety.py` (no new deps; LLM Guard deferred as overkill) |
 | Semantic Cache Check (Redis vector) | **Done** (default on) | ADR-007; invalidation + hit-rate metrics shipped |
 | Run Budgets + Retrieval/Embedding Caches | **Done** | `docs/specs/budgets-and-caches.md`: token cap routes to synthesis; query-embedding LRU; Redis retrieval cache with corpus-change eviction |
 | Offline Eval Harness | **Done** | `docs/specs/evaluation.md`: golden set + recall/nDCG/MRR/ΔNDCG + CI gate (`scripts/eval/run_eval.py`) |
 | Parent-Context Expansion | **Done** | `retrieval.md`: adjacent-sibling context rides inside the hit's own citation block |
-| Expanded `/health` (DB + Redis + embedding) | **Done** | `/healthz` (liveness) + `/readyz` (Redis ping + DB SELECT 1 + cached Cohere probe via `embedder.health_check()`) |
+| Expanded `/health` (DB + Redis + embedding) | **Done** | `/healthz` (liveness) + `/readyz` (Redis ping + DB SELECT 1 + cached Cohere probe via `embedder.health_check()`) + advisory checks: circuit breaker, embedding-version consistency, upload disk (advisory only — never flips the status code) |
 
 ### Checklist
 
-- [ ] Confirm migrations applied on Neon and seed user/workspace
-- [x] Health checks for dependencies — Redis, DB, Cohere embeddings (60s-cached probe; dev-fallback aware)
-- [ ] Tighten CORS / remove `/test-llm` for prod
+- [x] Confirm migrations applied on Neon and seed user/workspace — head `d7e2f9a4b1c3` verified on Neon dev (2026-10-16)
+- [x] Health checks for dependencies — Redis, DB, Cohere embeddings (60s-cached probe; dev-fallback aware) + readyz advisories (breaker / embedding versions / disk)
+- [x] Tighten CORS / remove `/test-llm` for prod — `/test-llm` now registered only when `APP_DEBUG=true` (full removal for prod is an env choice)
 
 ---
 
@@ -111,6 +111,7 @@
 | Workspace ID allowlist filter | Done | In hybrid search path |
 | Vector search timeout | **Done** | `asyncio.wait_for(RETRIEVAL_VECTOR_SEARCH_TIMEOUT=5s)` in `src/retrieval/vector_index.py`; timeout → `RetrievalError` |
 | Embed + rerank (Cohere) | **Done** | Cohere embed-v3 + rerank-v3 (commit `8411dfa`); `ALLOW_EMBEDDING_FALLBACK=false` default → provider failure fails the ingestion job loudly (`EmbeddingError`) instead of persisting hash/cosine fallback vectors |
+| Embedding provenance | **Done** (2026-10-16) | `chunks.embedding_model` records the model label per chunk (`embedder.embedding_model_label()`); `/readyz` advisories flag mixed labels; pre-tracking rows stay NULL ("unversioned") |
 | Dense vector store (pgvector) | **Done** | Embeddings persisted on `chunks.embedding` (pgvector); no in-memory fallback — the Postgres column IS the index |
 | Rebuild index from Postgres on startup | Done | Lifespan in `main.py` (no-op — no rebuild needed) |
 
@@ -134,7 +135,7 @@
 | Planner (graph node) | **Done** | `docs/specs/research-pipeline.md` — cheap-model decomposition, single-step fallback |
 | Critic + reflection loop | Deferred | Needs `docs/specs/critic.md` first |
 | Plan Cache (APC) | Deferred | Depends on plans repeating across runs |
-| Full Circuit Breaker (cost, reflections) | Deferred | After Critic |
+| Full Circuit Breaker (cost, reflections) | **Done (provider half)** | `src/shared/circuit_breaker.py`: 5 fails/30s → skip + 60s cooldown + half-open probe, wired into the gateway; reflection caps still deferred |
 
 ### Checklist (MVP ops)
 
@@ -177,14 +178,14 @@ Nothing required for single-shot MVP.
 | Item | Status | Notes |
 |---|---|---|
 | PostgreSQL ORM models | Done | users, workspaces, documents, jobs, chunks, runs, citations |
-| Alembic migrations | **Done** | Chain head `f2c8d4e6a9b1`: content_hash, thread_id, tsvector + GIN, pgvector embedding column |
+| Alembic migrations | **Done** | Chain head `d7e2f9a4b1c3`: content_hash, thread_id, tsvector + GIN, pgvector embedding column, chunks.embedding_model provenance, users.daily_token_budget |
 | Seed script | Done | `scripts/seed.py` |
 | Local raw file storage | Done | `UPLOAD_DIR` pattern |
 | Durable vector store | **Done** | pgvector on `chunks.embedding`; Postgres is the index — no separate vector store |
 
 ### Checklist
 
-- [ ] `alembic upgrade head` on target DB
+- [x] `alembic upgrade head` on target DB — applied on Neon dev (2026-10-16; expect a slow first connection on cold compute)
 - [ ] Seed + FK integrity
 - [ ] Confirm 7 tables + citations; add `tsv` migration
 - [ ] Neon (prod) / local Postgres decision locked in env
@@ -203,6 +204,7 @@ Nothing required for single-shot MVP.
 | Embed + persist stages | Done (code) | Depends on embedder quality |
 | Ingestion progress to client | Partial | Job poll stages; ensure UX strings match `ux.md` |
 | Retry (3×) on transient failure | **Done** | `src/shared/retry.py` — exponential backoff + jitter, selective by exception type |
+| Failed-job DLQ + safe re-runs | **Done** (2026-09-28) | `GET /jobs/failed`, `POST /jobs/{id}/retry`; `reset_document_chunks` deletes partial chunks before re-embedding (no duplicates) |
 | File size / type validation | **Done** | PDF magic bytes, size, page count, encryption check in `src/ingestion/router.py`; client-side guard in `upload-composer.tsx` |
 
 ### Checklist
@@ -219,7 +221,7 @@ Nothing required for single-shot MVP.
 | Item | Status | Notes |
 |---|---|---|
 | Observability setup (Logfire + Langfuse wire-up) | Partial | `src/observability/setup.py`; needs tokens + real traces |
-| Output Guardrail (Guardrails AI) | Deferred | PRD |
+| Output Guardrail (DIY scanners) | **Done** | ADR-010: leak filter + secret redaction pre persist/cache/delivery (Guardrails AI deferred) |
 | RAGAS + DeepEval nightly | Deferred | F10 / needs golden set |
 | Prometheus + Grafana | Deferred | F10 |
 
@@ -227,7 +229,9 @@ Nothing required for single-shot MVP.
 
 - [ ] Langfuse shows full run traces
 - [ ] Logfire in cloud for shared env
-- [ ] Optional: cost estimate on `ResearchRun` (F3)
+- [x] Optional: cost estimate on `ResearchRun` (F3) — `token_count` fully
+  accounted (planner + HyDE + synthesis) and exposed via runs API + `/usage`
+  (plus workspace daily total `workspace_today_tokens` on `/usage`, 2026-10-16)
 
 ---
 
@@ -236,6 +240,7 @@ Nothing required for single-shot MVP.
 | Item | Status | Notes |
 |---|---|---|
 | Workspace-scoped retrieval filter | Partial | Query filter only; not hard multi-tenant RBAC |
+| WS auth (browser handshakes) | **Done** (2026-10-16) | `?token=` query param accepted (header preferred); JWT mode honored when `AUTH_MODE=jwt` |
 | RBAC | Deferred | F9 |
 | Scoped Retrieval as security boundary | Deferred | F9 |
 | Secret management (Vault) | Partial | Env-based only |
@@ -273,15 +278,15 @@ Highest priority. Code is largely written; ops and proof are not.
 | 9. Retrieval script/tests | Remaining |
 | 10. Research agent E2E | Remaining |
 | 11. SSE (AG-UI) contract | Done — verified 2026-08-09 |
-| 12. ruff + basedpyright + pytest green | Remaining to verify |
+| 12. ruff + basedpyright + pytest green | Done — full suite 301 passed / 1 skipped (live TTS probe), 2026-10-16 |
 
 ### Definition of Done (still open)
 
 - [ ] PDF upload → `done` without manual steps
 - [x] Question → cited answer over SSE — verified 2026-08-09
 - [ ] ≥1 citation with usable `source_ref`
-- [ ] Progress events use only `ux.md` strings
-- [ ] Lint + typecheck clean
+- [x] Progress events use only `ux.md` strings — SSE frame scan test (`tests/research/test_sse_leakage.py`, 2026-10-16)
+- [x] Lint + typecheck clean
 
 ---
 
@@ -296,7 +301,7 @@ Do not build without a metric / PRD justification (`AGENTS.md`).
 - [ ] **F8** LiteLLM multi-provider
 - [ ] **F9** Real auth + RBAC + guardrails
 - [ ] **F10** Golden-set eval + Prometheus / Grafana
-- [ ] Full circuit breaker (cost + reflection caps)
+- [ ] Full circuit breaker (reflection caps; provider half shipped 2026-09-28)
 - [ ] MCP tools (filesystem, GitHub, web search)
 
 ---
@@ -527,6 +532,7 @@ flowchart LR
 | `docs/schema.md` | Conceptual data model + deferred entities |
 | `docs/specs/*` | Component contracts (ingestion, retrieval, researcher) |
 | `docs/ux.md` | Client progress vocabulary and citation display rules |
+| `docs/INCIDENT-PLAYBOOK.md` | Ops runbooks (embeddings / Redis / Neon cold start / TTS / providers) |
 | `docs/adr/*` | Locked tech decisions (LangGraph, pgvector, Model Gateway) |
 
 ---

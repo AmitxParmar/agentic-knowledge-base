@@ -192,11 +192,15 @@ Postgres is authoritative for chunk text, metadata, and vectors. `chunks.embeddi
 | --- | --- | --- |
 | `POST` | `/api/ingestion/upload` | Upload file, enqueue job |
 | `GET` | `/api/ingestion/jobs/{id}` | Poll ingestion stage |
+| `GET` | `/api/ingestion/jobs/failed` | Dead-letter list: failed jobs + errors |
+| `POST` | `/api/ingestion/jobs/{id}/retry` | Reset rows + re-enqueue a failed job |
 | `GET` | `/api/ingestion/documents` | List documents |
 | `DELETE` | `/api/ingestion/documents/{id}` | Delete document + chunks, invalidate caches |
 | `POST` | `/api/research/chat` | AG-UI SSE stream: stages → answer → citations (primary) |
 | `WS` | `/api/research/ws` | Legacy question → progress → answer (manual testing) |
+| `GET` | `/api/research/runs` | List runs (paginated, with token counts) |
 | `GET` | `/api/research/runs/{id}` | Fetch a completed run |
+| `GET` | `/api/research/usage` | Per-user token spend vs daily budget |
 | `GET` | `/api/conversations` | List threads |
 | `POST` | `/api/conversations` | Create thread |
 | `GET` | `/api/conversations/{id}` | Get thread + runs |
