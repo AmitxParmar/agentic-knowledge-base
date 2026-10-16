@@ -155,7 +155,9 @@ def create_app() -> FastAPI:
     # ── Structured request logging middleware ─────────────────────────────
     @app.middleware("http")
     async def request_logging(request: Request, call_next: Any) -> Response:
-        request_id = str(uuid.uuid4())
+        # Step 1: honor a caller-supplied ID so traces correlate across
+        # services (Vercel → Render); mint one when the caller sends none.
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         start = time.monotonic()
         request.state.request_id = request_id
 

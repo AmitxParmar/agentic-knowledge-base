@@ -64,6 +64,47 @@ _INSUFFICIENT_EVIDENCE_RESPONSE = (
     "this question. Try rephrasing it, or upload documents that cover this topic."
 )
 
+# Served when the workspace has no finished documents at all — a different
+# situation from "docs exist but nothing matched" (the message above), so it
+# gets its own wording that points at uploading instead of rephrasing.
+_NO_DOCUMENTS_RESPONSE = (
+    "You don't have any searchable documents yet — upload a PDF, repo, or "
+    "audio file first, wait for ingestion to finish, then ask again."
+)
+
+
+async def _workspace_has_searchable_docs(session: AsyncSession, workspace_id: uuid.UUID) -> bool:
+    """True when the workspace has at least one finished document.
+
+    A bounded COUNT — never loads rows — so the empty-corpus check stays
+    cheap on the hot path. Any DB failure returns True (fail open): the
+    generic insufficient-evidence refusal below is the safe fallback.
+    """
+    import inspect
+
+    from sqlalchemy import func
+
+    from src.ingestion.models import Document, JobStage
+
+    try:
+        result = await asyncio.wait_for(
+            session.execute(
+                select(func.count(Document.id)).where(
+                    Document.workspace_id == workspace_id,
+                    Document.processing_status == JobStage.done,
+                )
+            ),
+            timeout=5,
+        )
+        count = result.scalar_one()
+        # Step 1: tolerate mock sessions whose scalar_one is awaitable.
+        if inspect.isawaitable(count):
+            count = await count
+        return bool(count)
+    except Exception:
+        logger.warning("research: searchable-docs check failed, assuming docs exist")
+        return True
+
 
 class AgentState(TypedDict):
     run_id: str
@@ -559,8 +600,13 @@ async def run_agent(
         # has nothing to ground claims in, so force an honest refusal rather than
         # trusting the system prompt alone. The LLM's own answer is kept when
         # citations exist (even if weak) — low confidence surfaces via the flag.
+        # Empty-workspace ("upload first") and no-match ("rephrase") refusals
+        # stay distinct so the UI can guide the user to the right next step.
         if confidence == "insufficient" and not citations:
-            answer = _INSUFFICIENT_EVIDENCE_RESPONSE
+            if await _workspace_has_searchable_docs(session, workspace_id):
+                answer = _INSUFFICIENT_EVIDENCE_RESPONSE
+            else:
+                answer = _NO_DOCUMENTS_RESPONSE
         else:
             answer = (
                 final_state.get("answer")

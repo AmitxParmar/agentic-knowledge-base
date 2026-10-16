@@ -39,18 +39,22 @@ logger = logging.getLogger(__name__)
 _pdf_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pdf-parse")
 
 
-async def run_ingestion_job(ctx: dict[str, Any], *, document_id: str) -> None:
+async def run_ingestion_job(
+    ctx: dict[str, Any], *, document_id: str, request_id: str | None = None
+) -> None:
     del ctx
     doc_uuid = uuid.UUID(document_id)
 
     async with SessionLocal() as session:
         # One trace per ingested document ("one pipeline execution" per the
         # Langfuse trace-scope guidance); embed-texts children nest beneath it.
+        # request_id correlates back to the upload HTTP request (jobs run
+        # outside request scope, so it rides as an explicit argument).
         with traced_observation(
             "ingest-document",
-            input={"document_id": document_id},
+            input={"document_id": document_id, "request_id": request_id},
         ) as observation:
-            with logfire.span("ingestion.pipeline", document_id=document_id):
+            with logfire.span("ingestion.pipeline", document_id=document_id, request_id=request_id):
                 try:
                     async with indexing_semaphore():
                         chunk_count = await _run_pipeline(session, doc_uuid)

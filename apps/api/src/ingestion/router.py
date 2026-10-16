@@ -66,20 +66,32 @@ class RetryResponse(BaseModel):
     message: str
 
 
-async def _enqueue_ingestion_job(*, document_id: str, content_hash: str | None) -> None:
+class RebuildVectorsResponse(BaseModel):
+    current_model: str
+    stats: dict[str, int]
+    stale_documents: list[str]
+    requeued: list[str]
+    message: str
+
+
+async def _enqueue_ingestion_job(
+    *, document_id: str, content_hash: str | None, request_id: str | None = None
+) -> None:
     """Enqueue the arq ingestion job under a deterministic id.
 
     The _job_id pins re-delivery to one arq job per document content, so a
     manual retry and an at-least-once redelivery never double-enqueue.
     Content hash may be null on legacy rows — fall back to the document id.
+    The request id rides along for log correlation (jobs have no HTTP scope).
     """
     # Step 1: open a short-lived pool (callers are request handlers, not workers).
     redis = await arq.create_pool(arq.connections.RedisSettings.from_dsn(settings.REDIS_URL))
     try:
-        # Step 2: enqueue under the deterministic id; close the pool either way.
+        # Step 2: enqueue under the deterministic arq job id; close the pool either way.
         await redis.enqueue_job(
             "run_ingestion_job",
             document_id=document_id,
+            request_id=request_id,
             _job_id=f"ingest:{content_hash or document_id}",
         )
     finally:
@@ -210,7 +222,11 @@ async def upload_document(
     session.add(job)
     await session.commit()
 
-    await _enqueue_ingestion_job(document_id=str(doc_id), content_hash=content_hash)
+    await _enqueue_ingestion_job(
+        document_id=str(doc_id),
+        content_hash=content_hash,
+        request_id=getattr(request.state, "request_id", None),
+    )
 
     return UploadResponse(
         document_id=str(doc_id),
@@ -301,6 +317,88 @@ async def retry_failed_job(
         document_id=str(doc.id),
         status=JobStage.queued.value,
         message="Job re-queued for ingestion.",
+    )
+
+
+@router.post("/admin/rebuild-vectors", response_model=RebuildVectorsResponse)
+async def rebuild_vectors(
+    apply: bool = Query(
+        default=False,
+        description="When true, reset + re-enqueue every document with stale vectors",
+    ),
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    session: AsyncSession = Depends(get_session),
+) -> RebuildVectorsResponse:
+    """Debug-only vector rebuild: re-embed documents on a stale embedding model.
+
+    Hidden (404) unless APP_DEBUG — same rule as /test-llm. With apply=false
+    this is a read-only report (per-model chunk counts); with apply=true each
+    stale document is rewound via reset_job_for_retry and re-enqueued, so the
+    normal pipeline re-embeds it under the current model (no duplicates —
+    the reset deletes old chunks first).
+    """
+    # Step 1: debug-only — invisible in production like /test-llm.
+    if not settings.APP_DEBUG:
+        raise NotFoundError("Not found")
+    from src.retrieval.embedder import embedding_model_label
+
+    current = embedding_model_label()
+    # Step 2: per-model chunk counts, workspace-scoped (NULL = pre-tracking).
+    stats_result = await session.execute(
+        select(Chunk.embedding_model, func.count(Chunk.id))
+        .join(Document, Chunk.document_id == Document.id)
+        .where(Document.workspace_id == workspace_id)
+        .group_by(Chunk.embedding_model)
+    )
+    stats = {(row[0] or "unversioned"): row[1] for row in stats_result.all()}
+    # Step 3: documents holding at least one stale (non-current/NULL) chunk.
+    stale_result = await session.execute(
+        select(Document.id)
+        .join(Chunk, Chunk.document_id == Document.id)
+        .where(
+            Document.workspace_id == workspace_id,
+            (Chunk.embedding_model.is_(None)) | (Chunk.embedding_model != current),
+        )
+        .distinct()
+    )
+    stale_documents = [str(row[0]) for row in stale_result.all()]
+    # Step 4: dry run by default — only report.
+    requeued: list[str] = []
+    if not apply:
+        return RebuildVectorsResponse(
+            current_model=current,
+            stats=stats,
+            stale_documents=stale_documents,
+            requeued=requeued,
+            message=f"{len(stale_documents)} document(s) on stale vectors; re-run with apply=true.",
+        )
+    # Step 5: rewind + re-enqueue each stale document through the normal path.
+    for doc_id in stale_documents:
+        row = await session.execute(
+            select(IngestionJob, Document)
+            .join(Document, IngestionJob.document_id == Document.id)
+            .where(
+                IngestionJob.document_id == uuid.UUID(doc_id),
+                Document.workspace_id == workspace_id,
+            )
+        )
+        job_doc = row.one_or_none()
+        if job_doc is None:
+            continue
+        job, doc = job_doc
+        await reset_job_for_retry(session, job, doc)
+        await _enqueue_ingestion_job(
+            document_id=str(doc.id),
+            content_hash=doc.content_hash,
+            request_id=None,
+        )
+        requeued.append(str(doc.id))
+    return RebuildVectorsResponse(
+        current_model=current,
+        stats=stats,
+        stale_documents=stale_documents,
+        requeued=requeued,
+        message=f"Re-queued {len(requeued)} document(s) for re-embedding under {current}.",
     )
 
 

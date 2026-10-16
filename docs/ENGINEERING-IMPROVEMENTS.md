@@ -10,7 +10,7 @@
 >   core loop is real and measured — see `AGENTS.md` and PRD Non-Goals.
 > - Each item lists *why it matters*, *current gap*, and *concrete fix*.
 >
-> Last updated: 2026-10-16
+> Last updated: 2026-10-17
 
 ---
 
@@ -486,12 +486,15 @@ These often get skipped in agentic RAG builds:
 
 - [x] **Embedding versioning** — model name + dim stored with vectors; refuse mixed dims
   (`chunks.embedding_model` provenance + `/readyz` consistency advisory, 2026-10-16)
-- [ ] **Ingest idempotency** — re-upload same file shouldn’t duplicate silently
+- [x] **Ingest idempotency** — re-upload same file shouldn’t duplicate silently
+  (content-hash dedup returns the existing job; `test_duplicate_upload_returns_existing_job`)
 - [x] **Orphan cleanup** — delete document → delete chunks, vectors, jobs, files
   (`storage.delete_ref()` + delete-document cleanup + tests, 2026-10-16)
 - [ ] **Clock / timezone** — already UTC-ish; keep it consistent in API responses
-- [ ] **Empty retrieval UX** — “no documents searchable yet” vs “no evidence found”
-- [ ] **Partial failure mid-pipeline** — failed after embed but before persist leaves orphans
+- [x] **Empty retrieval UX** — “no documents searchable yet” vs “no evidence found”
+  (distinct upload-first vs rephrase refusals; `tests/research/test_empty_corpus.py`, 2026-10-17)
+- [x] **Partial failure mid-pipeline** — failed after embed but before persist leaves orphans
+  (current-attempt rows roll back on failure; retries clear stale chunks first via `reset_document_chunks`)
 
 ### Distributed systems
 
@@ -499,10 +502,12 @@ These often get skipped in agentic RAG builds:
   (`reset_document_chunks` delete-before-insert; `GET /jobs/failed` → `POST /jobs/{id}/retry`, 2026-09-28)
 - [x] **Poison messages** — permanent extract failures shouldn’t retry forever
   (DLQ surface + explicit retry; backoff retries only on transient failures)
-- [ ] **Backpressure** — limit concurrent heavy jobs (whisper/docling)
+- [x] **Backpressure** — limit concurrent heavy jobs (whisper/docling)
+  (PDF/index/embed semaphores + arq `max_jobs=4`, `job_timeout=600s`, `max_tries=3`; `test_backpressure.py`, 2026-10-17)
 - [x] **WS auth** — today open; plan token query param or cookie when auth lands
   (`?token=` accepted for browser WS handshakes; header preferred, 2026-10-16)
-- [ ] **Request IDs** — propagate `X-Request-Id` through logs, jobs, traces
+- [x] **Request IDs** — propagate `X-Request-Id` through logs, jobs, traces
+  (middleware honors caller ID + echoes it; arq jobs carry `request_id` into spans; `test_request_id.py`, 2026-10-17)
 
 ### LLM systems
 
@@ -520,8 +525,10 @@ These often get skipped in agentic RAG builds:
 
 ### Product / ops
 
-- [ ] **Run history API** already partial — wire UI to `GET /runs/{id}`
-- [ ] **Admin “rebuild vectors” endpoint** (debug-only)
+- [x] **Run history API** already partial — wire UI to `GET /runs/{id}`
+  (`apps/web/app/runs/page.tsx` list + detail via `use-run-history`/`use-research-run`, 2026-10-17)
+- [x] **Admin “rebuild vectors” endpoint** (debug-only)
+  (`POST /api/ingestion/admin/rebuild-vectors`, 404 unless `APP_DEBUG`; dry-run stats + apply re-queues stale docs; `test_rebuild_vectors.py`, 2026-10-17)
 - [x] **Disk usage monitoring** for `UPLOAD_DIR`
   (`/readyz` `upload_disk` advisory, 2026-10-16)
 - [x] **Cost ceiling per workspace** (even soft logging)

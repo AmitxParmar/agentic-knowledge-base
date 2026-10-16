@@ -4,7 +4,7 @@
 > `docs/latest-architecture.html` (V1 design), `docs/PRD.md` (MVP boundary),
 > `ROADMAP.md`, specs, and the current `apps/` code.
 >
-> Last updated: 2026-10-16
+> Last updated: 2026-10-17
 
 ## Status legend
 
@@ -278,7 +278,7 @@ Highest priority. Code is largely written; ops and proof are not.
 | 9. Retrieval script/tests | Remaining |
 | 10. Research agent E2E | Remaining |
 | 11. SSE (AG-UI) contract | Done — verified 2026-08-09 |
-| 12. ruff + basedpyright + pytest green | Done — full suite 301 passed / 1 skipped (live TTS probe), 2026-10-16 |
+| 12. ruff + basedpyright + pytest green | Done — full suite 311 passed / 1 skipped (live TTS probe), 2026-10-17 |
 
 ### Definition of Done (still open)
 
