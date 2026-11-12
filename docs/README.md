@@ -24,6 +24,7 @@ before you write any code.
 | `PRD.md` | What are we building, and what is explicitly *not* MVP? |
 | `AGENTS.md` | Rules for AI coding agents working in this repo |
 | `conventions.md` | Folder structure, naming, approved libraries, patterns |
+| `IMPLEMENTATION-PLAN.md` | Sequenced checklist plan for reliability, retrieval, and agent-runtime hardening |
 | `schema.md` | Core entities, relationships, ownership boundaries |
 | `docs/adr/*` | Why LangGraph, pgvector (Turbovec replaced), and the Model Gateway pattern were chosen |
 | `docs/specs/*` | Contract (inputs/outputs/tools/success criteria) for each MVP component |
