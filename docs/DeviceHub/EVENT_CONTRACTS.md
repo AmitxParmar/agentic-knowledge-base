@@ -4,9 +4,9 @@ MQTT topics, payloads, versions and command schemas. Payload fields for the robo
 
 ## 1. Conventions
 
-- Transport: MQTT over TLS, JSON payloads (UTF-8) in v1 ([ADR-0010](docs/adr/0010-json-payloads-v1.md)).
+- Transport: MQTT over TLS, JSON payloads (UTF-8) in v1 ([ADR-0010](adr/0010-json-payloads-v1.md)).
 - Topic prefix `dh/v1/`. The `v1` is the **topic-contract** version; each payload also carries its own `schema_version`.
-- **The tenant is never in the topic or payload.** The backend resolves tenant from the authenticated device identity ([ADR-0009](docs/adr/0009-tenant-isolation-rls.md)).
+- **The tenant is never in the topic or payload.** The backend resolves tenant from the authenticated device identity ([ADR-0009](adr/0009-tenant-isolation-rls.md)).
 - MQTT username = `d_<device_id>`; broker ACLs use the `%u` pattern, so a device can only touch its own topics.
 - IDs are UUIDs (v7 for server-generated). Timestamps are RFC 3339 UTC strings unless named `*_ms`.
 - Unknown fields must be ignored by consumers. Removing or re-typing a field requires a new `schema_version`.

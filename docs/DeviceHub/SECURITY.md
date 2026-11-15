@@ -52,7 +52,7 @@ Treat as **untrusted input**: browser requests, device payloads, document conten
 Credential lifecycle:
 - Secret shown once at creation; only hash stored.
 - Rotation: create a second credential (overlap window, default 24 h), update the device, revoke the old one.
-- Broker auth is synced from `core.device_credential` by `hub-worker` (password file regenerated and broker reloaded, [ADR-0003](docs/adr/0003-mosquitto-broker.md)). Revocation takes effect within the sync interval and by forcing a disconnect.
+- Broker auth is synced from `core.device_credential` by `hub-worker` (password file regenerated and broker reloaded, [ADR-0003](adr/0003-mosquitto-broker.md)). Revocation takes effect within the sync interval and by forcing a disconnect.
 - Failed-auth attempts are rate-limited and logged.
 
 ## 3. Device identity and command integrity
@@ -65,7 +65,7 @@ Credential lifecycle:
 
 ## 4. Tenant isolation
 
-Defense in depth, so one bug does not leak across tenants ([ADR-0009](docs/adr/0009-tenant-isolation-rls.md)):
+Defense in depth, so one bug does not leak across tenants ([ADR-0009](adr/0009-tenant-isolation-rls.md)):
 
 1. **Identity-derived tenant.** Tenant comes from the authenticated principal or the device registry; never from request bodies, topics, or LLM output.
 2. **PostgreSQL RLS** on every tenant table; each request transaction sets `app.tenant_id` via `SET LOCAL`. App role has no `BYPASSRLS`; background jobs use a separate, narrowly granted role.

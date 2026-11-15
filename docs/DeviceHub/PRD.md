@@ -4,9 +4,9 @@
 |---|---|
 | Status | Draft v0.1 |
 | Owner | Amit |
-| Related | [PROJECT_SCOPE](PROJECT_SCOPE.md) · [SERVICE_BOUNDARIES](SERVICE_BOUNDARIES.md) · [DATA_MODEL](DATA_MODEL.md) · [EVENT_CONTRACTS](EVENT_CONTRACTS.md) · [WORKFLOWS](WORKFLOWS.md) · [SECURITY](SECURITY.md) · [ADRs](docs/adr/README.md) |
+| Related | [PROJECT_SCOPE](PROJECT_SCOPE.md) · [SERVICE_BOUNDARIES](SERVICE_BOUNDARIES.md) · [DATA_MODEL](DATA_MODEL.md) · [EVENT_CONTRACTS](EVENT_CONTRACTS.md) · [WORKFLOWS](WORKFLOWS.md) · [SECURITY](SECURITY.md) · [ADRs](adr/README.md) |
 
-Hardware-specific items are **provisional** until the component inventory (Phase 1) is complete. They are marked `[HW-TBD]`.
+Hardware-specific items are **provisional** until the component inventory is complete. They are marked `[HW-TBD]`. Current inventory, unknowns, and required bench tests: [HARDWARE_INVENTORY](HARDWARE_INVENTORY.md).
 
 ## 1. Problem
 
@@ -154,5 +154,5 @@ See [PROJECT_SCOPE §5](PROJECT_SCOPE.md#5-success-criteria). Summary: working r
 1. Exact Arduino board, motor driver, sensors, power supply `[HW-TBD]`.
 2. Bridge host: laptop, Raspberry Pi, or an ESP-class network module later?
 3. LLM provider/model for the agent, and evaluation judge approach.
-4. Whether to adopt a binary payload format after the first throughput benchmark ([ADR-0010](docs/adr/0010-json-payloads-v1.md)).
+4. Whether to adopt a binary payload format after the first throughput benchmark ([ADR-0010](adr/0010-json-payloads-v1.md)).
 5. User auth for MVP: local accounts vs external identity provider ([SECURITY §2](SECURITY.md#2-authentication)).

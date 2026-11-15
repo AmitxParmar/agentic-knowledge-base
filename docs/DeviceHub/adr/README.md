@@ -16,6 +16,7 @@ Each ADR records one significant decision: context, the decision, alternatives, 
 | [0010](0010-json-payloads-v1.md) | JSON payloads with explicit schema versions in v1 | Accepted (revisit after benchmark) |
 | [0011](0011-single-langgraph-agent.md) | One investigation agent on LangGraph | Accepted |
 | [0012](0012-sse-for-realtime.md) | Server-Sent Events for browser realtime | Accepted |
+| [0013](0013-devicehub-within-agentic-rag-monorepo.md) | Host DeviceHub inside the existing Agentic RAG monorepo | Accepted |
 
 ## Template
 

@@ -46,8 +46,8 @@ Rule: finish a slice end to end before starting the next. Phase numbers match th
 - MCP server for selected tools
 - DuckDB offline analysis and Parquet export
 - OTA firmware update with rollback
-- Binary payload format benchmark (see [ADR-0010](docs/adr/0010-json-payloads-v1.md))
-- EMQX migration experiment (see [ADR-0003](docs/adr/0003-mosquitto-broker.md))
+- Binary payload format benchmark (see [ADR-0010](adr/0010-json-payloads-v1.md))
+- EMQX migration experiment (see [ADR-0003](adr/0003-mosquitto-broker.md))
 
 ## 4. Exclusions (non-goals)
 

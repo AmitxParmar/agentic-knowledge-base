@@ -4,7 +4,7 @@ Who owns what. The rule of thumb: **Rust owns truth and safety, Python owns reas
 
 ## 1. Deployable units
 
-Start as a modular monorepo ([ADR-0001](docs/adr/0001-modular-monorepo.md)). Logical components are many; deployable units are few.
+Start as a modular monorepo ([ADR-0001](adr/0001-modular-monorepo.md)). Logical components are many; deployable units are few.
 
 | Unit | Language | Contains (logical components) |
 |---|---|---|
@@ -95,15 +95,21 @@ If `agent-service` is down, incidents still open, operators still approve and se
 
 ## 6. Repository layout
 
+DeviceHub lives inside the existing `enterprise-agentic-knowledgebase` monorepo, not in a standalone `devicehub/` repository ([ADR-0013](adr/0013-devicehub-within-agentic-rag-monorepo.md)). The logical components above are unchanged; only their paths differ.
+
 ```
-devicehub/
-  crates/            # Rust workspace: api, worker, common (domain, db, mqtt, policy), simulator, bridge
-  agent/             # Python: graph, tools, rag, evals
-  web/               # Next.js
-  firmware/          # Arduino sketch(es)
-  deploy/            # compose files, broker config, otel, prometheus, grafana
-  docs/              # ADRs, benchmarks, diagrams
-  migrations/        # core (SQLx) and clickhouse SQL
+crates/              # Rust workspace: common (domain, db, mqtt, policy)
+apps/hub-api/        # Rust: Axum API, command service, policy gate, query API, SSE
+apps/hub-worker/     # Rust: MQTT ingest, rules/incidents, outbox, presence
+apps/simulator/      # Rust: virtual fleet, fault injection
+apps/bridge/         # Rust (or Python): serial <-> MQTT
+apps/api/            # existing Python/FastAPI app + DeviceHub graph in src/devicehub/
+apps/web/            # existing Next.js app + DeviceHub routes
+firmware/            # Arduino sketch(es)            [planned]
+deploy/              # compose files, broker config   [planned]
+docs/DeviceHub/      # these documents, ADRs, benchmarks, diagrams
 ```
+
+The existing Agentic Knowledge Base keeps its current paths and ownership. PostgreSQL `public` tables belong to the existing app; DeviceHub schemas are additive. Full mapping, ports, and environment-variable rules: [REPOSITORY_INTEGRATION](REPOSITORY_INTEGRATION.md).
 
 Shared logic that must not diverge (e.g. command catalog and limits) lives in `crates/common` and is exported as JSON Schema/OpenAPI for Python and TypeScript to consume.
