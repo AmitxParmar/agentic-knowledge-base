@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DeviceHub AI — Architecture</title>
+<script>
+(function(){var d;try{var s=localStorage.getItem('theme');d=s?s==='dark':matchMedia('(prefers-color-scheme: dark)').matches}catch(e){d=matchMedia('(prefers-color-scheme: dark)').matches}document.documentElement.classList.toggle('dark',d)})();
+</script>
+<style>
+:root{--bg:#FAF9F5;--surface:#fff;--surface2:#F0EEE6;--ink:#141413;--body:#3D3D3A;--muted:#7a7972;--line:#D1CFC5;--line-soft:#E6E3DA;--clay:#D97757;--clay-soft:rgba(217,119,87,.10);--olive:#6f8453;--olive-soft:rgba(120,140,93,.13);--zone:rgba(20,20,19,.025);--serif:ui-serif,Georgia,serif;--sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+html.dark{--bg:#141413;--surface:#1F1F1D;--surface2:#2A2A28;--ink:#FAF9F5;--body:#D1CFC5;--muted:#9a9990;--line:#3D3D3A;--line-soft:#2A2A28;--clay:#E48A6E;--clay-soft:rgba(228,138,110,.14);--olive:#9DB07C;--olive-soft:rgba(157,176,124,.16);--zone:rgba(250,249,245,.03)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--body);font-family:var(--sans);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden}
+.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 20px;padding-top:calc(12px + env(safe-area-inset-top,0px));border-bottom:1px solid var(--line-soft);flex:none}
+.bar h1{font-family:var(--serif);font-weight:500;font-size:19px;color:var(--ink)}
+.sub{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.spacer{flex:1}.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip,#themeToggle{font-family:var(--mono);font-size:11px;letter-spacing:.04em;padding:5px 11px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--muted);cursor:pointer}
+#themeToggle{border-radius:6px;text-transform:uppercase;font-size:10.5px}
+.chip:hover,#themeToggle:hover{color:var(--ink);border-color:var(--muted)}
+.chip.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.stage{flex:1;position:relative;min-height:0;padding-bottom:env(safe-area-inset-bottom,0px)}
+.stage svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.zone rect{fill:var(--zone);stroke:var(--line);stroke-dasharray:5 5;rx:16}
+.ztitle{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;fill:var(--muted)}
+.zsub{font-size:10.5px;opacity:.75;letter-spacing:.03em;text-transform:none}
+.node{cursor:pointer}
+.node rect{fill:var(--surface);stroke:var(--line);stroke-width:1.5;rx:10;transition:stroke .15s}
+.node:hover rect{stroke:var(--muted)}
+.node.sel rect{stroke:var(--clay)!important;stroke-width:2}
+.node .t{font-size:14px;font-weight:600;fill:var(--ink);pointer-events:none}
+.node .m{font-family:var(--mono);font-size:11px;fill:var(--muted);pointer-events:none}
+.node.gate rect{fill:var(--clay-soft);stroke:var(--clay)}
+.node.store rect{fill:var(--surface2)}
+.node.do rect{fill:var(--olive-soft);stroke:var(--olive)}
+.node.dev rect{stroke-dasharray:6 3}
+.edge{stroke:var(--muted);stroke-width:1.5;fill:none;marker-end:url(#a-mut);transition:opacity .2s}
+.edge.bi{marker-start:url(#a-mut)}
+.elbl{font-family:var(--mono);font-size:10.5px;fill:var(--muted);transition:opacity .2s}
+.stage.flowing .edge,.stage.flowing .elbl{opacity:.12}
+.stage.flowing .node{opacity:.28}.stage.flowing .zone{opacity:.45}
+.stage.flowing .edge.lit{opacity:1;stroke:var(--clay);marker-end:url(#a-clay);stroke-dasharray:7 5;animation:march .9s linear infinite}
+.stage.flowing .edge.bi.lit{marker-start:url(#a-clay)}
+.stage.flowing .elbl.lit{opacity:1;fill:var(--clay)}
+.stage.flowing .node.lit{opacity:1}.stage.flowing .node.lit rect{stroke:var(--clay)}
+@keyframes march{to{stroke-dashoffset:-12}}
+@media (prefers-reduced-motion:reduce){.stage.flowing .edge.lit{animation:none}}
+.card{position:absolute;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:0 6px 24px rgba(0,0,0,.08)}
+#detail{right:16px;bottom:16px;width:370px;max-height:46%;overflow:auto}
+#detail h3{font-family:var(--serif);font-weight:500;font-size:17px;color:var(--ink)}
+#detail .meta{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin:2px 0 8px}
+#detail p{font-size:12.5px;line-height:1.55}
+#detail .add{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+#detail .add b{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--olive);font-weight:600}
+#flowcap{left:16px;top:12px;max-width:430px;display:none}
+#flowcap.show{display:block}
+#flowcap .fname{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--clay);margin-bottom:6px}
+#flowcap ol{margin-left:18px}#flowcap li{font-size:12.5px;line-height:1.5}
+@media (max-width:880px){body{overflow:auto}.stage{min-height:70vh}#detail,#flowcap{position:static;width:auto;max-width:none;margin:10px 16px}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div><h1>DeviceHub AI — the stack</h1><div class="sub">one robot · many simulated devices · one safe agent</div></div>
+  <div class="spacer"></div>
+  <div class="chips" id="chips"></div>
+  <button id="themeToggle">Theme</button>
+</div>
+<div class="stage" id="stage">
+<svg id="svg" viewBox="0 0 1260 925" preserveAspectRatio="xMidYMid meet" role="img" aria-label="DeviceHub AI architecture diagram">
+  <defs>
+    <marker id="a-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--muted)"/></marker>
+    <marker id="a-clay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--clay)"/></marker>
+  </defs>
+</svg>
+<div class="card" id="flowcap"><div class="fname" id="f-name"></div><ol id="f-steps"></ol></div>
+<div class="card" id="detail">
+  <h3 id="d-title">Click anything</h3><div class="meta" id="d-meta">node detail</div>
+  <p id="d-body">Every box is clickable and lists the hardening work worth adding. Chips up top animate the main paths.</p>
+  <p class="add" id="d-add" hidden></p>
+</div>
+</div>
+<script>
+const ZONES=[
+["edge",30,110,240,580,"Edge & operators",""],["broker",300,110,190,580,"Broker",""],
+["rust",520,110,380,560,"Rust core","Tokio · Axum"],["agent",930,110,300,380,"Agent service","FastAPI · Python"],
+["data",520,690,710,110,"Data",""],["obs",30,815,1200,95,"Observability & delivery","instrument every hop"]];
+
+// key,cls,x,y,w,h,title,lines,meta,body,add
+const N=[
+["robot","dev",50,155,200,115,"Arduino robot",["board · driver TBD","line-follow · ultrasonic stop","watchdog · e-stop · limits"],"firmware · deterministic safety","Line following and obstacle stop run entirely on the MCU. The LLM never touches motor pins; commands are clamped on-device too.","Hardware watchdog · comms-loss failsafe stop · speed/slew limits · e-stop topic · motor-supply brown-out check · firmware version + config hash in every heartbeat · OTA update with rollback."],
+["bridge","dev",50,295,200,95,"Host bridge",["serial ⇄ MQTT","framed · CRC · seq/boot_id"],"USB serial ↔ MQTT","The only process that owns the serial port. Translates framed lines to MQTT and allow-lists command types.","COBS/CRC framing · monotonic seq + boot_id for ordering · local ring buffer for store-and-forward during broker outage · MQTT LWT presence · clock-offset estimation."],
+["sim","dev",50,415,200,95,"Fleet simulator",["N virtual devices","seeded · fault injection"],"Rust/Tokio load source","Thousands of virtual robots using the same schema as the real one; seeded RNG makes load tests reproducible.","Fault injection: duplicates, late/out-of-order, malformed, reconnect storms, clock skew · scenarios versioned in git."],
+["dash","",50,540,200,125,"Next.js dashboard",["fleet · devices · incidents","AI progress · approvals","audit · config history"],"TypeScript · SSE/WS","Fleet overview, device detail with live telemetry, incident center with agent steps and citations, approval center.","Virtualized tables · LTTB downsampled charts · rAF-batched live updates · resume with Last-Event-ID · Web Vitals budget in CI · optimistic UI with rollback."],
+["broker","",315,290,160,150,"MQTT broker",["Mosquitto | EMQX","…/telemetry","…/cmd  …/ack  …/cfg","QoS 1 · TLS · ACLs"],"devices/{tenant}/{id}/…","Topic convention carries tenant and device. QoS 1 for telemetry and commands, LWT for presence, retained state where useful.","Per-device ACLs + client certs · shared subscriptions for horizontal ingest · broker-outage chaos test."],
+["ingest","",540,155,340,95,"Ingest worker",["MQTT sub → validate → dedupe","bounded channels · batch flush","DLQ · backpressure"],"Rust · Tokio","Validates versioned payloads, dedupes on (device, boot_id, seq), fans into bounded channels, flushes in batches.","Load-shedding policy · adaptive batch/flush · idempotent writes · DLQ table + replay tool · out-of-order watermark · draining graceful shutdown · flamegraph-driven tuning · published throughput numbers."],
+["cmd","gate",540,270,340,90,"Command service + safety gate",["pending → approved → sent → acked","idempotent · expiry · outbox","deterministic policy"],"Rust · state machine","Command lifecycle with a deterministic policy gate. The agent can only request; humans approve; the backend re-validates after approval.","Idempotency keys · TTL/expiry · transactional outbox (no double-send after crash) · reject stale commands by boot_id · per-device rate limits · magnitude/duration clamps · append-only audit."],
+["api","",540,380,340,85,"Device API",["Axum · SQLx · tenant-scoped RBAC","registry · state · queries · config"],"Rust · Axum","Registration, credentials, latest state, time-range queries, versioned config with acknowledgments.","Cursor pagination + bounded windows · credential rotation with overlap · Postgres RLS · rate limiting · OpenAPI from code · contract tests."],
+["rules","",540,485,340,80,"Rules / incident engine",["thresholds · disconnect · anomalies","severity · evidence · dedupe"],"deterministic · Rust","Obstacle, range, disconnect and anomaly rules open incidents with severity, timestamps and evidence.","Hysteresis + debounce against flapping · incident correlation · stuck/flatline sensor detection · rules replayed against recorded traces in CI."],
+["rt","",540,585,340,60,"Realtime gateway",["SSE / WS fan-out"],"live updates","Pushes telemetry, incident and agent-step events to browsers.","Bounded per-client queues · slow-consumer eviction · tenant-filtered subscriptions · resumable event IDs."],
+["agent","do",950,155,260,105,"Investigation agent",["LangGraph · checkpointed","evidence → diagnose → propose","budgets · human approval"],"one stateful graph","One reliable agent: gather evidence, retrieve docs, diagnose, propose an action, wait for approval, verify the outcome.","Step/time/token budgets · crash-resumable from Postgres checkpoints · schema-validated structured output · graceful degradation when the LLM is down."],
+["tools","do",950,280,260,80,"Scoped tools",["status · history · incidents","request-command (never execute)"],"least-privilege token per run","Narrow typed tools calling the Device API. Tool output is untrusted data.","Prompt-injection corpus tests · per-tool timeouts/retries · result-size caps · command-type allow-list."],
+["rag","do",950,385,260,80,"RAG over manuals",["pgvector · hybrid · citations","metadata filters"],"manuals · runbooks","Chunked device docs with BM25 + vector retrieval, metadata filters and citations.","Retrieval eval (recall@k, MRR) · chunking ablation · embedding-version column for re-index · citation verification."],
+["pg","store",540,715,300,65,"PostgreSQL + pgvector",["truth · audit · checkpoints"],"transactional","Tenants, devices, credentials, latest state, commands, incidents, audit, embeddings, LangGraph checkpoints.","EXPLAIN ANALYZE-driven indexes · partial/BRIN indexes · time partitioning · PgBouncer pooling · migration checks in CI · backup/restore drill."],
+["ch","store",860,715,230,65,"ClickHouse",["telemetry · rollups"],"MergeTree · analytics","Historical telemetry partitioned by day, ordered by (tenant, device, ts); fleet aggregates.","Materialized-view rollups · TTL + tiered retention · batch-insert tuning · measured comparison against Postgres."],
+["duck","store",1110,715,100,65,"DuckDB",["offline"],"local analysis","Parquet exports for notebooks and eval datasets.","Replay recorded telemetry through the rules engine as regression tests."],
+["otel","",50,845,230,52,"OpenTelemetry",["traces · metrics · logs"],"Rust + Python","Correlated traces across API, MQTT processing, DB and agent steps.","Trace context propagated via MQTT user properties · exemplars linking metrics to traces · tail sampling."],
+["prom","",300,845,250,52,"Prometheus + Grafana",["SLOs · lag · p99 · drops"],"metrics","Ingest lag, queue depth, p50/p95/p99, drop counts, command outcomes.","SLO burn-rate alerts · dashboards as code · runbooks linked from alerts."],
+["lf","",570,845,220,52,"Langfuse + evals",["traces · 50+ scenarios"],"LLM quality","LLM traces, token cost, and incident scenarios scored on diagnosis, tool choice, citations and unsafe attempts.","Prompt versioning · regression suite gates merges · cost and latency budgets per run."],
+["k6","",810,845,240,52,"k6 / MQTT load gen",["repeatable · recorded runs"],"benchmarks","Every run records hardware, dataset size, rate and conditions.","Soak tests · reconnect storms · capacity curve (throughput vs p99) · result JSON committed."],
+["ci","",1070,845,140,52,"CI",["fmt·lint·test·eval"],"GitHub Actions","Formatting, lint, tests, migrations, builds, evals.","cargo-audit + dependency scanning · SBOM · image scanning · ephemeral Compose integration test · chaos job."]
+];
+
+// id, path, bidirectional, label, lx, ly, anchor
+const E=[
+["e-rb","M150,270L150,295",1,"serial",158,287,"start"],
+["e-bb","M250,345L315,345",1,"MQTT",283,337,"middle"],
+["e-sb","M250,462C285,462 292,415 315,408",1],
+["e-bi","M475,322C505,322 515,205 540,205"],
+["e-cb","M540,318C512,318 505,380 475,385",1],
+["e-ipg","M880,190C898,190 898,690 790,715"],
+["e-ich","M880,225C910,225 912,690 960,715"],
+["e-cpg","M540,350C524,350 516,690 600,715"],
+["e-rpg","M540,525C526,525 524,695 660,715"],
+["e-da","M250,575C360,540 430,450 540,432",0,"REST · approvals",262,563,"start"],
+["e-rt","M540,615C430,615 330,625 250,622",0,"SSE/WS",395,608,"middle"],
+["e-ta","M950,320C925,320 915,425 880,428"],
+["e-ra","M880,515C915,515 915,235 950,225"],
+["e-ar","M950,245C920,262 922,590 880,612"],
+["e-tr","M1080,360L1080,385"],
+["e-ragpg","M1000,465C1000,640 860,660 820,715"]];
+
+const F={
+telemetry:{n:"Telemetry — robot to dashboard",e:["e-rb","e-bb","e-bi","e-ipg","e-ich"],k:["robot","bridge","broker","ingest","pg","ch"],s:["Robot emits distance, line sensors, state, seq + boot_id","Bridge publishes on MQTT (QoS 1); LWT flags it offline if it dies","Ingest validates the schema version, dedupes, batches","Latest state → Postgres, history → ClickHouse, live view → dashboard"]},
+command:{n:"Command — approved, validated, acked",e:["e-da","e-cpg","e-cb","e-bb","e-rb"],k:["dash","api","cmd","pg","broker","bridge","robot"],s:["Operator or agent <code>requests</code> a command; the gate checks type, limits, tenant","Held as <code>pending_approval</code> until a human approves in the dashboard","Backend re-validates, outbox publishes once; MCU re-checks limits","Ack + execution status return; outcome is verified from telemetry"]},
+incident:{n:"Incident — detect, investigate, propose",e:["e-ra","e-ta","e-tr","e-ragpg","e-ar","e-rt"],k:["rules","agent","tools","api","rag","pg","rt","dash"],s:["Deterministic rule opens an incident with evidence","LangGraph starts; scoped tools pull status and history","RAG retrieves manual passages with citations","Progress streams live to the dashboard","Any fix is a <i>request</i> that enters the command flow above"]},
+load:{n:"Load test — simulated fleet",e:["e-sb","e-bi","e-ipg","e-ich"],k:["sim","broker","ingest","pg","ch","k6","otel","prom"],s:["Simulator or k6 drives N devices with seeded faults","Ingest applies backpressure and batching","Metrics + traces show lag, p50/p95/p99, drops","Run is recorded with hardware, dataset and rate"]},
+gaps:{n:"Added beyond your plan",e:[],k:["robot","bridge","broker","ingest","cmd","api","pg","ch","tools","k6"],s:["OTA firmware + config rollout with canary and rollback","Schema versioning / compatibility tests for telemetry","Multi-tenant isolation proof (RLS + broker ACLs)","Retention, downsampling and cost model","Chaos suite: broker/DB loss, worker crash, duplicate commands","Threat model + ADRs + documented benchmark methodology"]}
+};
+
+const svg=document.getElementById('svg');
+let h='';
+ZONES.forEach(z=>h+=`<g class="zone"><rect x="${z[1]}" y="${z[2]}" width="${z[3]}" height="${z[4]}"/><text class="ztitle" x="${z[1]+20}" y="${z[2]+28}">${z[5]}<tspan class="zsub" dx="10">${z[6]}</tspan></text></g>`);
+E.forEach(e=>h+=`<path class="edge${e[2]?' bi':''}" id="${e[0]}" d="${e[1]}"/>`+(e[3]?`<text class="elbl" data-e="${e[0]}" x="${e[4]}" y="${e[5]}" text-anchor="${e[6]}">${e[3]}</text>`:''));
+const D={};
+N.forEach(n=>{D[n[0]]=n;let t=`<g class="node ${n[1]}" data-k="${n[0]}"><rect x="${n[2]}" y="${n[3]}" width="${n[4]}" height="${n[5]}"/><text class="t" x="${n[2]+18}" y="${n[3]+27}">${n[6]}</text>`;
+n[7].forEach((l,i)=>t+=`<text class="m" x="${n[2]+18}" y="${n[3]+49+i*17}">${l}</text>`);h+=t+'</g>'});
+svg.insertAdjacentHTML('beforeend',h);
+
+const stage=document.getElementById('stage'),nodes=document.querySelectorAll('.node'),edges=document.querySelectorAll('.edge'),elbls=document.querySelectorAll('.elbl'),fcap=document.getElementById('flowcap');
+const chipsEl=document.getElementById('chips');
+const chipList=[["all","Everything"],["telemetry","Telemetry"],["command","Command"],["incident","Incident + agent"],["load","Load test"],["gaps","Added"]];
+chipsEl.innerHTML=chipList.map((c,i)=>`<button class="chip${i?'':' on'}" data-flow="${c[0]}">${c[1]}</button>`).join('');
+const chips=document.querySelectorAll('.chip');
+function setFlow(k){
+  chips.forEach(c=>c.classList.toggle('on',c.dataset.flow===k));
+  [...edges,...elbls,...nodes].forEach(x=>x.classList.remove('lit'));
+  if(k==='all'){stage.classList.remove('flowing');fcap.classList.remove('show');return}
+  const f=F[k];stage.classList.add('flowing');
+  f.e.forEach(id=>document.getElementById(id).classList.add('lit'));
+  elbls.forEach(l=>{if(f.e.includes(l.dataset.e))l.classList.add('lit')});
+  f.k.forEach(x=>document.querySelector(`.node[data-k="${x}"]`).classList.add('lit'));
+  document.getElementById('f-name').textContent=f.n;
+  document.getElementById('f-steps').innerHTML=f.s.map(s=>`<li>${s}</li>`).join('');
+  fcap.classList.add('show');
+}
+chips.forEach(c=>c.addEventListener('click',()=>setFlow(c.dataset.flow)));
+nodes.forEach(n=>n.addEventListener('click',()=>{
+  nodes.forEach(x=>x.classList.remove('sel'));n.classList.add('sel');
+  const d=D[n.dataset.k];
+  document.getElementById('d-title').textContent=d[6];
+  document.getElementById('d-meta').textContent=d[8];
+  document.getElementById('d-body').textContent=d[9];
+  const a=document.getElementById('d-add');a.hidden=false;a.innerHTML='<b>Added · resume signal</b><br>'+d[10];
+}));
+document.getElementById('themeToggle').addEventListener('click',()=>{
+  const dark=!document.documentElement.classList.contains('dark');
+  document.documentElement.classList.toggle('dark',dark);
+  try{localStorage.setItem('theme',dark?'dark':'light')}catch(e){}
+});
+</script>
+</body>
+</html>
