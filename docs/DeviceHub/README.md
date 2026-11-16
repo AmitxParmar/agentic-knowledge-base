@@ -27,6 +27,7 @@ The rule of thumb throughout these documents: **Rust owns truth and safety, Pyth
 | [REPOSITORY_INTEGRATION](REPOSITORY_INTEGRATION.md) | How the logical DeviceHub layout maps onto this monorepo |
 | [LLM_IMPLEMENTATION_GUIDE](LLM_IMPLEMENTATION_GUIDE.md) | Operating instructions for coding agents, phase authorization, stop conditions |
 | [PHASE_1_REPORT](PHASE_1_REPORT.md) | Phase 1 / S0 deliverables, findings, and measured baseline results |
+| [PHASE_2_PLAN](PHASE_2_PLAN.md) | Phase 2 telemetry slice: decisions, tickets, acceptance criteria, open questions |
 | [Architecture (HTML)](../DeviceHub%20AI%20—%20Architecture.html) | Interactive architecture diagram |
 
 ## Architecture decisions

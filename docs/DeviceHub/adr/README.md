@@ -17,6 +17,7 @@ Each ADR records one significant decision: context, the decision, alternatives, 
 | [0011](0011-single-langgraph-agent.md) | One investigation agent on LangGraph | Accepted |
 | [0012](0012-sse-for-realtime.md) | Server-Sent Events for browser realtime | Accepted |
 | [0013](0013-devicehub-within-agentic-rag-monorepo.md) | Host DeviceHub inside the existing Agentic RAG monorepo | Accepted |
+| [0014](0014-single-process-rust-deploy.md) | Deploy the Rust device plane as one process on Render's free tier | Accepted |
 
 ## Template
 

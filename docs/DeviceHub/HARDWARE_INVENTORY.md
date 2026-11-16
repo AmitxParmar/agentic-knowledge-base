@@ -6,6 +6,8 @@ Hardware facts are the input to Phase 2 (first vertical slice) and Phase 4 (robo
 
 ## 1. Status vocabulary
 
+**Owner-reported (2026-11-16):** Arduino Nano works; IR line sensors, ultrasonic sensor, and a motor controller are on hand, condition unknown. Nothing below has been verified on the bench yet.
+
 | Status | Meaning |
 |---|---|
 | `unknown` | Not identified. No assumption may be made. |
@@ -19,10 +21,10 @@ Hardware facts are the input to Phase 2 (first vertical slice) and Phase 4 (robo
 
 | # | Component | Required detail | Status | Notes / source |
 |---|---|---|---|---|
-| H1 | Arduino board | Manufacturer, exact model, silkscreen marking, logic voltage | `unknown` | Model determines pin count, timers, memory, and whether any network stack exists. |
-| H2 | Motor driver / controller | Model, channel count, max current, logic vs motor supply | `unknown` | Determines whether PWM and direction pins are available and how they are wired. |
-| H3 | Ultrasonic distance sensor | Model, trigger/echo or I2C, supply voltage, measured range | `unknown` | Drives `distance_cm` semantics and the valid range in `EVENT_CONTRACTS` §4. |
-| H4 | Line-following sensors | Technology (IR reflectance vs analog), count, spacing | `unknown` | Drives `line.{l,c,r}`. The current contract assumes exactly three channels. |
+| H1 | Arduino board | Manufacturer, exact model, silkscreen marking, logic voltage | `working` (reported) | **Arduino Nano** (ATmega328P, 5 V logic, 16 MHz, 2 KB SRAM, single USB UART, no network stack). Reported working by the owner; enumeration on this machine not yet verified. |
+| H2 | Motor driver / controller | Model, channel count, max current, logic vs motor supply | `not inspected` | Owner reports present; model unconfirmed. Not needed for the Phase 2 telemetry slice. |
+| H3 | Ultrasonic distance sensor | Model, trigger/echo or I2C, supply voltage, measured range | `not inspected` | Owner reports present; model unconfirmed. Likely HC-SR04-class; a 5 V Nano accepts its echo directly. Bench test required. |
+| H4 | Line-following sensors | Technology (IR reflectance vs analog), count, spacing | `not inspected` | Owner reports IR sensors present; count and output type unconfirmed. The contract assumes three channels. |
 | H5 | Drive motors | Count, type (DC/stepper/servo), rated voltage and current, gearbox | `unknown` | Two independently driven wheels are assumed by `motion.left_pwm/right_pwm`. |
 | H6 | Chassis / wheels | Availability, wheel diameter, caster/tracks | `unknown` | Affects speed limits only, not contracts. |
 | H7 | Power supply / battery | Chemistry, nominal voltage, capacity, discharge current, connector, fuse | `unknown` | Motor and logic rails must be separated or decoupled; unknown until measured. |

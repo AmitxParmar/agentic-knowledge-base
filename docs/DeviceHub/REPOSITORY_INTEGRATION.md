@@ -28,10 +28,12 @@ Decision record: [ADR-0013](adr/0013-devicehub-within-agentic-rag-monorepo.md). 
 
 Paths are **planned**. Nothing in this table is implemented in Phase 1.
 
+`hub-api` and `hub-worker` share one crate, `apps/hub/`, with three binaries: `api`, `worker`, and `all`. Render runs `all` ([ADR-0014](adr/0014-single-process-rust-deploy.md)); development may run them separately.
+
 | DeviceHub component | Language | Planned location | Precedent in this repo |
 |---|---|---|---|
-| `hub-api` | Rust (Axum, Tokio) | `apps/hub-api/` | `apps/api` (independent app in the same workspace) |
-| `hub-worker` | Rust (Tokio) | `apps/hub-worker/` | arq worker currently lives inside `apps/api` |
+| `hub-api` | Rust (Axum, Tokio) | `apps/hub/src/bin/api.rs` | `apps/api` (independent app in the same workspace) |
+| `hub-worker` | Rust (Tokio) | `apps/hub/src/bin/worker.rs` | arq worker currently lives inside `apps/api` |
 | shared Rust crates | Rust | `crates/{common,domain,db,mqtt,policy}` | none yet — new workspace root |
 | `agent-service` | Python (FastAPI, LangGraph) | reuse `apps/api`; DeviceHub graph in `apps/api/src/devicehub/` | `apps/api/src/research/` |
 | `web` dashboard | TypeScript | extend `apps/web` (new routes under `app/`) | `app/research`, `app/library`, `app/runs`, `app/usage` |
