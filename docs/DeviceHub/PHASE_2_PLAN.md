@@ -27,21 +27,39 @@ This is the smallest slice that exercises the real contracts. Every later capabi
 | D5 | Persist `core.device_latest_state` **and** `core.telemetry_event`. | Gives charts and future incident windows; resolves contract finding C5 for the demo. |
 | D6 | Minimal read-only `/devicehub` page in this phase. | Proves the read path and gives the demo a screen. |
 
-## 3. Deployment reality (Render free tier)
+## 3. Existing deployment (already live)
 
-Constraints that shape the plan: 512 MB RAM, 0.1 CPU, 750 instance hours/month, no persistent disk, no background workers, HTTP(S) inbound only, spin-down after inactivity, ~30–60 s cold start.
+The Knowledge Base is deployed and must keep working untouched.
+
+| Part | Where | Notes |
+|---|---|---|
+| Backend | Render free Docker web service `agentic-research-api` (`apps/api/render.yaml`) | One container runs `alembic upgrade head`, the arq worker, and uvicorn on `$PORT`; health check `/health` |
+| Frontend | Vercel (Next.js) | Reads `NEXT_PUBLIC_API_BASE_URL`, inlined at build time |
+| Database | Neon Postgres, `public` schema, pgvector | Alembic owns the schema |
+| Redis | Upstash | Rate limiting and cache |
+| Storage | Backblaze B2 (S3-compatible) | Uploads |
+| Models | Model gateway: Groq → OpenRouter; Cohere embed/rerank | ADR-003 |
+| Observability | Logfire | |
+
+Precedent worth noting: the backend **already** runs the API and the arq worker in one free-tier container. ADR-0014 extends an existing pattern rather than inventing one.
+
+## 3.1 Constraints the live deployment imposes
+
+Render free tier: 512 MB RAM, 0.1 CPU, **750 instance hours/month per account**, no persistent disk, no background workers, HTTP(S) inbound only, spin-down after inactivity, ~30–60 s cold start.
 
 | Mode | Where it runs | Broker | Purpose |
 |---|---|---|---|
 | **Local (live device)** | Laptop: Mosquitto, bridge, `hub` (api+worker), web | Mosquitto in Docker | The real Nano demo |
-| **Hosted (portfolio)** | Render free: `hub` in `all` mode + web | **undecided** — see O1 | Public URL; seeded or simulator-fed data |
+| **Hosted (portfolio)** | `hub` in `all` mode on a **second Render free service**; web stays on Vercel | **undecided** — see O1 | Public URL; seeded or simulator-fed data |
 
 Consequences:
 
-- A free Render web service **cannot host Mosquitto**. The hosted mode needs an internet-reachable broker, which is a vendor decision (O1). Until then, the hosted instance is seeded, not live.
-- The live device demo is inherently laptop-local because the bridge owns the USB port.
-- The process binds `0.0.0.0:$PORT`, uses a current-thread Tokio runtime, and keeps the SQLx pool at ≤ 5 connections.
-- Cold start is accepted; no keep-warm job (consistent with `apps/api/render.yaml`).
+- The 750-hour budget is **account-wide**, shared with the live Knowledge Base service. Two always-warm services do not both fit a month; the hub service must sleep outside demos, or the live demo stays laptop-local.
+- A free Render web service **cannot host Mosquitto**. Hosted live data needs an internet-reachable broker (O1). Until then the hosted instance is seeded, not live.
+- The live device demo is laptop-local because the bridge owns the USB port.
+- `hub` binds `0.0.0.0:$PORT`, uses a current-thread Tokio runtime, and keeps the SQLx pool at ≤ 5 connections.
+- Cold start is accepted; no keep-warm job, consistent with the existing service.
+- The web app already lives on Vercel. DeviceHub pages ship as new routes in that same app and call the hub **cross-origin**, so the hub needs the Vercel origin in its own `CORS_ORIGINS`.
 
 ## 4. Architecture
 
@@ -82,7 +100,9 @@ Indexes: `telemetry_event (device_id, ts desc)`, unique `(device_id, boot_id, se
 
 Deferred from `DATA_MODEL.md`: `device_credential` rotation and broker sync (Phase 5), `command`, `approval`, `outbox`, `incident*`, `audit_log`, `app_user`, `membership`. Phase 2 uses a static broker password file. **Deviation recorded:** credential lifecycle is not implemented yet.
 
-Retention: keep events indefinitely for the demo; revisit before any load test.
+Retention: at 5 Hz one device writes 432,000 rows/day (~130 MB with indexes). Neon's free tier stores 0.5 GB, so indefinite retention is not viable. Phase 2 keeps **48 hours** of events with an index-backed sweep (or a scheduled delete), while `device_latest_state` stays current. If 48 h is too much, ingest at 1 Hz or persist on change. Revisit before any load test.
+
+Budget note: DeviceHub queries keep the Neon compute awake and draw on the same monthly budget as the Knowledge Base. A separate Neon project isolates the two (O6).
 
 Rule: latest state updates only when the event is newer. Same `boot_id`: compare `seq`. Different `boot_id`: compare `ts`. Ties and older events still go to `telemetry_event`, never to latest state.
 
@@ -133,9 +153,13 @@ Topics: `dh/v1/d/{device_id}/telemetry` (QoS 1, not retained) and `dh/v1/d/{devi
 
 Auth for the demo: `Authorization: Bearer $HUB_API_TOKEN` on `/v1/*`. This is explicitly **demo-only** and is not the `SECURITY.md` user-auth design; record it as such.
 
+SSE notes: send a `: keepalive` comment every 15 s, because Render's proxy drops idle connections, and support `Last-Event-ID` so the browser resumes without a gap. The existing research stream is a short-lived POST, so this is new behaviour rather than a pattern copied from it.
+
 ### 6.4 Web
 
 `apps/web/app/devicehub/page.tsx` (fleet list) and `apps/web/app/devicehub/devices/[id]/page.tsx` (latest state + a small chart + event table). Feature code in `apps/web/features/devicehub/`. Server components use `HUB_API_URL`; the SSE hook uses `NEXT_PUBLIC_HUB_API_URL`. No database, MQTT, or agent access from the browser.
+
+`NEXT_PUBLIC_HUB_API_URL` must be referenced as a string literal, following the existing rule documented in `apps/web/lib/env.ts` (Next.js inlines `NEXT_PUBLIC_*` at build time), and must be set in Vercel **before** the build.
 
 ## 7. Work breakdown
 
@@ -166,7 +190,7 @@ Tickets are ordered by blocking edge. There is no configured issue tracker, so t
 - **T7** — Serial output parses as one object per line for 10 minutes without a malformed line; `dist_cm` tracks a moving hand; each line channel changes on tape vs floor.
 - **T8** — Killing and restarting the broker does not crash the bridge; buffered events replay with original `seq`; duplicate publish is harmless.
 - **T9** — Fleet list shows online/offline; detail page updates without reload; `pnpm --filter web lint` and `check-types` pass.
-- **T10** — Hosted `/healthz` returns 200; migrations applied on boot; `readyz` reflects DB and broker state; cold start documented.
+- **T10** — Hosted `/healthz` returns 200; migrations applied on boot; `readyz` reflects DB and broker state; the Vercel origin appears in the hub's CORS list; the account stays inside 750 instance hours; cold start documented.
 - **T11** — Demo script runs end to end in under 5 minutes, including a deliberate disconnect showing offline.
 
 ## 8. Test strategy
@@ -192,6 +216,9 @@ No `testcontainers` dependency: it would need its own ADR and buys little at thi
 | Neon autosuspend | First query latency | Warm on `/readyz`; acceptable for demo |
 | Laptop sleeps mid-demo | Telemetry stops | Demo script checks power settings |
 | Contract finding C1 (seq collision) | Dedupe ambiguity later if `event` is added | Phase 2 uses telemetry only; resolve C1 before adding `event` |
+| Render instance-hour budget shared with the live KB service | Hub throttled, or the KB stops serving | Hub sleeps outside demos; watch usage against 750 h; decide at O1 |
+| Neon free storage and compute shared with the KB | DeviceHub writes exhaust the budget and slow the KB | 48 h retention, small pool, separate project (O6) |
+| Long-lived SSE through Render's proxy | Stream silently drops mid-demo | 15 s keepalive, `Last-Event-ID` resume, reconnect tests in T11 |
 
 ## 10. Out of scope (explicit)
 
@@ -211,7 +238,8 @@ Commands, outbox, approvals, `estop`; deterministic rules and incidents; LangGra
 
 | Area | Change |
 |---|---|
-| `apps/api`, `apps/web` existing routes, `packages/*` | none |
+| `apps/api`, `apps/web` existing routes, `packages/*` | none; `apps/web/lib/env.ts` gains one additive export for `NEXT_PUBLIC_HUB_API_URL` |
+| Vercel project | new environment variable only; existing build and domains unchanged |
 | Existing Alembic chain / `public` schema | none |
 | `.github/workflows/ci.yml` | additive Rust job only |
 | `apps/api/render.yaml` | additive second service block, or a separate blueprint file |
@@ -226,5 +254,6 @@ Commands, outbox, approvals, `estop`; deterministic rules and incidents; LangGra
 | O3 | Line sensors analog or digital | Decide at bench test; analog preferred if the modules expose it |
 | O4 | Demo API token handling | Single `HUB_API_TOKEN` in env, no user accounts this phase |
 | O5 | Neon database name and pooled URL | `devicehub`, separate `DATABASE_URL` for the service |
+| O6 | Same Neon project or a separate one | Separate project: isolates storage and compute-hour budgets from the live Knowledge Base |
 
 **Implementation starts only after you approve this plan.** T1 is documentation; T2 is the first code.
