@@ -2,11 +2,38 @@
 
 | | |
 |---|---|
-| Status | **Proposed — implementation not authorized yet** |
+| Status | **In progress — T1–T6 implemented; T7–T11 pending** |
 | Predecessor | Phase 1 / S0, recorded in [PHASE_1_REPORT](PHASE_1_REPORT.md) |
-| Branch | continue on `feat/devicehub-phase-1-foundation`, or cut `feat/devicehub-phase-2-telemetry` |
+| Branch | `feat/devicehub-phase-2-telemetry` (cut from the Phase 1 branch) |
 | Scope | Real Nano sensor data → bridge → MQTT → Rust ingest → PostgreSQL → live page |
 | Explicitly not in scope | Motors, commands, approvals, incidents, agent, ClickHouse, simulator, config rollout |
+
+## 0. Progress
+
+| Ticket | State | Evidence |
+|---|---|---|
+| T1 | done | [ADR-0015](adr/0015-device-plane-dependencies.md); bridge switched to Rust |
+| T2 | done | `crates/common` + `apps/hub` (`api`, `worker`, `all`); rustfmt, clippy `-D warnings`, tests green |
+| T3 | done | `deploy/compose.dev.yaml`, Mosquitto config + ACL, password script, `.env.example` |
+| T4 | done | `core` migrations, idempotent seed, migration test against a real Postgres |
+| T5 | implemented, smoke-tested | ingest, dedupe, gap counting, dead letters, latest-state ordering, heartbeat sweep |
+| T6 | implemented, smoke-tested | devices, detail, telemetry, stats, SSE with `Last-Event-ID` replay |
+| T7–T11 | pending | firmware, bridge, web page, Render deploy, bench demo |
+
+### Verification run (2026-11-17, local Docker Postgres 16 + Mosquitto 2)
+
+| Check | Result |
+|---|---|
+| Three valid frames (`seq` 1, 2, 4) | stored; `gaps` counter = 1 |
+| Duplicate `seq` 2 | dropped; `duplicates` = 1; history still 3 rows |
+| Malformed JSON | `core.dead_letter.reason = malformed_json` |
+| Late `seq` 3 after `seq` 5 | stored in history; latest state stayed at 5 |
+| SSE replay with `Last-Event-ID: 1` | replayed ids 2 and 3 |
+| SSE live | delivered ids 5 and 6 |
+| Auth | `/v1/*` 401 without token, 403 wrong token, 200 correct |
+| 16 s silence | device `offline`, latest state `online = false` |
+| Migrations run twice | second run a no-op; seed counts stay 1/1 |
+
 
 ## 1. Goal
 
@@ -93,7 +120,7 @@ Additive, new database only. No relation to `public` tables. Single tenant seede
 | `core.tenant` | `id`, `name`, `created_at` | One seeded row |
 | `core.device` | `id`, `tenant_id`, `external_id`, `name`, `kind`, `model`, `fw_version`, `status`, `last_seen_at`, `created_at` | `kind` includes `real` and `simulated` now, even though only `real` is used |
 | `core.device_latest_state` | `device_id`, `tenant_id`, `boot_id`, `last_seq`, `last_event_ts`, `telemetry jsonb`, `online`, `updated_at` | One row per device |
-| `core.telemetry_event` | `id`, `tenant_id`, `device_id`, `boot_id`, `seq`, `ts`, `ingested_at`, `schema_version`, `distance_cm`, `line_l`, `line_c`, `line_r`, `battery_mv`, `extra jsonb` | Append-only; `unique (device_id, boot_id, seq)` |
+| `core.telemetry_event` | `id`, `tenant_id`, `device_id`, `boot_id`, `seq`, `ts`, `ingested_at`, `schema_version`, `fw_version`, `distance_cm`, `line_l/c/r`, `motion_state`, `left_pwm`, `right_pwm`, `battery_mv`, `config_version`, `clock_skew`, `payload jsonb` | Append-only; `unique (device_id, boot_id, seq)`; `payload` keeps the accepted envelope for replay and later evidence |
 | `core.dead_letter` | `id`, `source`, `topic`, `device_id`, `reason`, `raw bytea`, `received_at` | Invalid, oversize, wrong identity, unsupported version |
 
 Indexes: `telemetry_event (device_id, ts desc)`, unique `(device_id, boot_id, seq)`, `device (tenant_id, status)`.
@@ -148,7 +175,8 @@ Topics: `dh/v1/d/{device_id}/telemetry` (QoS 1, not retained) and `dh/v1/d/{devi
 | GET | `/v1/devices` | List with latest state and online flag |
 | GET | `/v1/devices/{id}` | Device + latest state |
 | GET | `/v1/devices/{id}/telemetry?limit=200&from=&to=` | Newest-first events, bounded limit |
-| GET | `/v1/stream?topics=device:{id}` | SSE `device.state`, coalesced to 250 ms per device |
+| GET | `/v1/stream?topics=device:{id}` | SSE `device.state`, with `Last-Event-ID` replay and a 15 s keepalive |
+| GET | `/v1/stats` | In-process counters: accepted, duplicates, gaps, dead letters |
 | GET | `/healthz`, `/readyz` | Liveness, and DB + broker readiness |
 
 Auth for the demo: `Authorization: Bearer $HUB_API_TOKEN` on `/v1/*`. This is explicitly **demo-only** and is not the `SECURITY.md` user-auth design; record it as such.
@@ -174,7 +202,7 @@ Tickets are ordered by blocking edge. There is no configured issue tracker, so t
 | T5 | Ingest worker | L | T3, T4 | Validate → dedupe → latest state → events → dead letter, with counters |
 | T6 | Read API + SSE | M | T4 | The four `/v1` endpoints plus health checks |
 | T7 | Nano firmware | M | hardware bench | JSON-line sensor telemetry, no motor code, `config.h` pins |
-| T8 | Bridge | M | T3, T5, T7 | `apps/bridge/` Python bridge: serial → MQTT, reconnect, ring buffer |
+| T8 | Bridge | M | T3, T5, T7 | `apps/bridge/` **Rust** bridge (`serialport` + `rumqttc`): serial → MQTT, reconnect, ring buffer |
 | T9 | `/devicehub` page | M | T6 | Fleet list, device detail, SSE updates |
 | T10 | Render deployment | S | T5, T6 | `all` binary on Render free, migrations on boot, env documented |
 | T11 | Bench bring-up + demo script | S | T7, T8, T9 | Recorded evidence and a repeatable 5-minute demo |
@@ -188,7 +216,7 @@ Tickets are ordered by blocking edge. There is no configured issue tracker, so t
 - **T5** — Unit tests cover: valid event, duplicate key, older `seq`, cross-boot ordering, clock skew, malformed JSON, oversize payload, identity mismatch, unsupported version. Duplicates do not create a second `telemetry_event` and do not regress latest state.
 - **T6** — Endpoints return documented shapes; SSE emits `device.state` within 1 s of ingest locally; unknown device returns 404; limit is bounded.
 - **T7** — Serial output parses as one object per line for 10 minutes without a malformed line; `dist_cm` tracks a moving hand; each line channel changes on tape vs floor.
-- **T8** — Killing and restarting the broker does not crash the bridge; buffered events replay with original `seq`; duplicate publish is harmless.
+- **T8** — Killing and restarting the broker does not crash the bridge; buffered events replay with original `seq`; duplicate publish is harmless; the crate builds with `libudev-dev` installed.
 - **T9** — Fleet list shows online/offline; detail page updates without reload; `pnpm --filter web lint` and `check-types` pass.
 - **T10** — Hosted `/healthz` returns 200; migrations applied on boot; `readyz` reflects DB and broker state; the Vercel origin appears in the hub's CORS list; the account stays inside 750 instance hours; cold start documented.
 - **T11** — Demo script runs end to end in under 5 minutes, including a deliberate disconnect showing offline.
@@ -256,4 +284,4 @@ Commands, outbox, approvals, `estop`; deterministic rules and incidents; LangGra
 | O5 | Neon database name and pooled URL | `devicehub`, separate `DATABASE_URL` for the service |
 | O6 | Same Neon project or a separate one | Separate project: isolates storage and compute-hour budgets from the live Knowledge Base |
 
-**Implementation starts only after you approve this plan.** T1 is documentation; T2 is the first code.
+Implementation was authorized on 2026-11-17; T1–T6 are in the tree. T7 (firmware) waits for confirmed pin mapping, and T9 needs the API frozen first.

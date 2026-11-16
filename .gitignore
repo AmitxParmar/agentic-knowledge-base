@@ -108,3 +108,11 @@ graphify-out/
 .commandcode/
 .understand-anything/
 .zcode/
+
+# ==========================
+# Rust (DeviceHub device plane)
+# ==========================
+
+/target/
+# Generated local MQTT credentials (never commit)
+deploy/mosquitto/passwd

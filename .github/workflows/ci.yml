@@ -73,9 +73,49 @@ jobs:
       - name: Typecheck
         run: pnpm check-types
 
-  eval:
-    name: eval (golden-set retrieval gates, non-blocking)
+  rust:
+    name: rust (fmt, clippy, test)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dh
+          POSTGRES_PASSWORD: dh
+          POSTGRES_DB: dh
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # The migration test drops and recreates the `core` schema, so point it
+      # at the disposable service container, never at a real database.
+      TEST_DATABASE_URL: postgres://dh:dh@localhost:5432/dh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+  eval:
+    name: eval (golden-set retrieval gates, non-blocking)    runs-on: ubuntu-latest
     if: ${{ secrets.DATABASE_URL != '' }}
     continue-on-error: true
     defaults:
