@@ -1,7 +1,7 @@
 // Pin map for the Phase 2 telemetry sketch.
 //
-// RECOMMENDED, NOT YET CONFIRMED. Match these against the physical wiring
-// before flashing. All pins are free on an Uno R3 and deliberately avoid:
+// Confirmed against the bench device on 2026-11-17. All pins are free on an
+// Uno R3 and deliberately avoid:
 //   D0/D1  — hardware serial, used by USB
 //   D2/D3  — left free for interrupts (encoders, kill switch)
 //   D3,5,6,9,10,11 — PWM, reserved for the motor driver in a later phase
@@ -13,15 +13,11 @@
 #define PIN_TRIG 7
 #define PIN_ECHO 8
 
-// Three line sensors. Use the analog-capable pins for either module type:
-//   * 4-pin module (VCC, GND, DO, AO) -> wire AO here, get 0..1023
-//   * 3-pin module (VCC, GND, OUT)    -> wire OUT here, get ~0 or ~1023
-// The firmware reads them with analogRead, which works for both.
-//
-// This bench device has TWO sensors (confirmed 2026-11-17), so there is no
-// centre channel. `line.c` is therefore omitted from the payload instead of
-// being invented.
+// Three line sensors, all 3-pin modules (VCC, GND, OUT) that nevertheless
+// output an analog level: measured swing is roughly 30..975 on A0/A1 and a
+// narrower 440..750 on A2. Read with analogRead and threshold per channel.
 #define PIN_LINE_L A0
+#define PIN_LINE_C A1
 #define PIN_LINE_R A2
 
 // Optional battery divider. Leave disabled until a divider is actually wired:

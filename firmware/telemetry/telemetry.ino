@@ -7,7 +7,7 @@
 // publishing to MQTT, so this sketch only reports what the MCU knows.
 //
 // Output:
-//   {"v":1,"seq":7,"ms":1400,"dist_cm":23.4,"line":{"l":120,"r":130}}
+//   {"v":1,"seq":7,"ms":1400,"dist_cm":23.4,"line":{"l":120,"c":860,"r":130}}
 //
 // A line ends with '\n' only. Arduino's println() would append '\r\n'.
 
@@ -58,6 +58,8 @@ static void print_reading() {
 
   Serial.print(F(",\"line\":{\"l\":"));
   Serial.print((int)analogRead(PIN_LINE_L));
+  Serial.print(F(",\"c\":"));
+  Serial.print((int)analogRead(PIN_LINE_C));
   Serial.print(F(",\"r\":"));
   Serial.print((int)analogRead(PIN_LINE_R));
   Serial.print('}');
@@ -77,6 +79,7 @@ void setup() {
   digitalWrite(PIN_TRIG, LOW);
   pinMode(PIN_ECHO, INPUT);
   pinMode(PIN_LINE_L, INPUT);
+  pinMode(PIN_LINE_C, INPUT);
   pinMode(PIN_LINE_R, INPUT);
 #if ENABLE_BATTERY
   pinMode(PIN_BATTERY, INPUT);

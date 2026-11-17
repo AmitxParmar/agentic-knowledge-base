@@ -24,7 +24,7 @@ Hardware facts are the input to Phase 2 (first vertical slice) and Phase 4 (robo
 | H1 | Arduino board | Manufacturer, exact model, silkscreen marking, logic voltage | `working` — **Uno R3** detected | USB `2341:0043` ("Arduino SA Uno R3, CDC ACM") on `/dev/ttyACM0`, `arduino:avr:uno`, core `1.8.8`. Owner originally reported a **Nano**; confirm which board is the bench target. Both are ATmega328P / 5 V, so the firmware design is unchanged apart from pin count and form factor. |
 | H2 | Motor driver / controller | Model, channel count, max current, logic vs motor supply | `not inspected` | Owner reports present; model unconfirmed. Not needed for the Phase 2 telemetry slice. |
 | H3 | Ultrasonic distance sensor | Model, trigger/echo or I2C, supply voltage, measured range | `not inspected` | Owner reports present; model unconfirmed. Likely HC-SR04-class; a 5 V Nano accepts its echo directly. Bench test required. |
-| H4 | Line-following sensors | Technology (IR reflectance vs analog), count, spacing | `partly known` — **2 sensors** | Owner confirmed two IR sensors on 2026-11-17; earlier notes assumed three. Output type (analog via AO vs digital OUT) still unconfirmed. `line.c` is now optional in the contract so the device does not have to invent a centre reading. |
+| H4 | Line-following sensors | Technology (IR reflectance vs analog), count, spacing | `verified` — **3 sensors** | Three 3-pin IR modules wired to A0/A1/A2 and bench-tested on 2026-11-17. All respond; they output an analog level, not a bare comparator. Measured span: A0 39–973, A1 78–976, A2 443–747. A2 is compressed and needs its own threshold. Spacing unmeasured. |
 | H5 | Drive motors | Count, type (DC/stepper/servo), rated voltage and current, gearbox | `unknown` | Two independently driven wheels are assumed by `motion.left_pwm/right_pwm`. |
 | H6 | Chassis / wheels | Availability, wheel diameter, caster/tracks | `unknown` | Affects speed limits only, not contracts. |
 | H7 | Power supply / battery | Chemistry, nominal voltage, capacity, discharge current, connector, fuse | `unknown` | Motor and logic rails must be separated or decoupled; unknown until measured. |
@@ -84,6 +84,6 @@ These hold regardless of which components are confirmed, and are already fixed b
 | Telemetry rate and payload budget | H1 memory, H8 link quality measured |
 | Whether the bridge is required at all | H9 (on-board networking) |
 | Valid `distance_cm` range and threshold | H3 datasheet plus measured behaviour |
-| `line.{l,c,r}` value ranges and polarity | H4 identified |
+| Left/centre/right channel labelling | H4 measured 2026-11-17; physical mapping confirmed on the floor |
 | Battery fields in telemetry (`power.battery_mv`) | H7 supports voltage sensing |
 | Bench safety sign-off before any floor test | H10 present and tested, all bench tests passed |

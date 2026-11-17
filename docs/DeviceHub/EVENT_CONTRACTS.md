@@ -64,14 +64,15 @@ Hub services use separate service credentials with wildcard read on device topic
 }
 ```
 
-Devices with two line sensors omit `line.c` entirely; the Phase 2 bench device
-is one. A missing channel means unknown, never zero.
+A device with only two line sensors omits `line.c` instead of inventing a
+centre reading. A missing channel means unknown, never zero. The Phase 2 bench
+device now carries all three.
 
 | Field | Type | Rules |
 |---|---|---|
 | `distance_cm` | float \| null | `null` = no echo/timeout. Valid range 2–400 `[HW-TBD]`; outside → still stored, rule may flag |
 | `line.{l,r}` | int | Raw sensor readings; both required. Range depends on sensor type `[HW-TBD]` |
-| `line.c` | int \| absent | Centre channel. **Absent** on a device with two sensors (the Phase 2 bench device); consumers must not substitute `0`. |
+| `line.c` | int \| absent | Centre channel. **Optional**: absent on a device with two sensors; consumers must not substitute `0`. |
 | `motion.state` | enum | `idle`, `forward`, `turn_left`, `turn_right`, `stopped`, `estop` |
 | `motion.*_pwm` | int | −255..255 |
 | `power.battery_mv` | int \| absent | Only if hardware supports it |

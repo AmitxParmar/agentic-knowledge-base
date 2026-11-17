@@ -94,7 +94,7 @@ Consequences:
 ```mermaid
 flowchart LR
   subgraph Device
-    N["Arduino Uno R3<br/>HC-SR04 + 2 IR sensors"]
+    N["Arduino Uno R3<br/>HC-SR04 + 3 IR sensors"]
   end
   subgraph Laptop["Host (laptop)"]
     B["bridge<br/>serial -> MQTT"]
@@ -165,7 +165,7 @@ Bench note (2026-11-17): the Uno's `println` emits `\r\n`. Firmware will write `
 | `seq` | `seq` |
 | `ms` | `ts_mono_ms` |
 | `dist_cm` | `distance_cm` |
-| `line.l`, `line.r` (and `line.c` when present) | `line.l / line.c / line.r`; `c` stays absent for this two-sensor device |
+| `line.l`, `line.c`, `line.r` | `line.l / line.c / line.r`; `c` is optional for devices that lack a centre sensor |
 | `batt_mv` | `power.battery_mv` |
 | — | `device_id`, `boot_id` (new UUID per bridge start), `ts` (RFC 3339 UTC), `fw_version`, `motion.state = "idle"` |
 
