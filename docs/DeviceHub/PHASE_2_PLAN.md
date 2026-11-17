@@ -18,8 +18,9 @@
 | T4 | done | `core` migrations, idempotent seed, migration test against a real Postgres |
 | T5 | implemented, smoke-tested | ingest, dedupe, gap counting, dead letters, latest-state ordering, heartbeat sweep |
 | T6 | implemented, smoke-tested | devices, detail, telemetry, stats, SSE with `Last-Event-ID` replay |
-| T7 | bench smoke passed | `firmware/smoke` flashes and prints JSON at 115200; sensor firmware waits on the pin map |
-| T8–T11 | pending | bridge, web page, Render deploy, bench demo |
+| T7 | firmware done, one sensor fault | Uno R3; `firmware/telemetry` emits `l/c/r` at 5 Hz and all three IR modules respond (spans A0 39–973, A1 78–976, A2 443–747). HC-SR04 produces no echo: D7/D8 proven good by continuity test, so the module is the suspect. `dist_cm` is `null` and the slice does not depend on it |
+| T8 | done | `apps/bridge`: serial → MQTT, QoS 1 with ack-gated queue, backoff reconnect, bounded buffer. Broker-outage replay verified locally |
+| T9–T11 | pending | web page, Render deploy, bench demo |
 
 ### Verification run (2026-11-17, local Docker Postgres 16 + Mosquitto 2)
 
