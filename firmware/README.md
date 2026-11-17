@@ -48,6 +48,51 @@ This bench device has **two** sensors, so the payload omits `line.c`.
 
 The wire contract does not change; only the usable range does.
 
+## Breadboard layout (mini board, 4-hole rows)
+
+A mini breadboard's rows are horizontal nodes: **every hole in one row is the
+same wire**, and the centre gap separates the left half from the right half.
+That has two consequences.
+
+1. **Never plug the 4-pin HC-SR04 along a row** — that shorts VCC, TRIG, ECHO
+   and GND together. Insert modules **across** the rows so each pin lands in
+   its own row.
+2. Use two rows as power buses:
+
+```
+row 1      [5V][5V][5V][5V] │ [ ][ ][ ][ ]    <- 5V bus
+row 2      [G ][G ][G ][G ] │ [ ][ ][ ][ ]    <- GND bus
+row 3-6    HC-SR04, one pin per row: VCC, TRIG, ECHO, GND
+row 7-9    IR left, one pin per row: VCC, GND, OUT -> A0
+row 10-12  IR right, one pin per row: VCC, GND, OUT -> A2
+```
+
+With 4-hole rows the bus is exactly full: one lead from the Arduino plus three
+module leads.
+
+| From | To | Jumper |
+|---|---|---|
+| Arduino **5V** | row 1 | 1 male–male |
+| Arduino **GND** | row 2 | 1 male–male |
+| row 1 | HC-SR04 VCC | 1 |
+| row 1 | IR left VCC | 1 |
+| row 1 | IR right VCC | 1 |
+| row 2 | HC-SR04 GND | 1 |
+| row 2 | IR left GND | 1 |
+| row 2 | IR right GND | 1 |
+| HC-SR04 TRIG | Arduino **D7** | 1 |
+| HC-SR04 ECHO | Arduino **D8** | 1 |
+| IR left OUT/AO | Arduino **A0** | 1 |
+| IR right OUT/AO | Arduino **A2** | 1 |
+
+That is 12 jumpers. If you only have male–male leads, push the module pins
+into their own rows and run male–male from those rows to the Arduino; the
+Arduino's headers are female sockets, so male–male is what fits them either
+way.
+
+Order of work: **unplug USB**, wire ground first, then 5 V, then signals, check
+each module's silkscreen for VCC/GND order, then power up and flash.
+
 ## Flash and read
 
 ```bash
