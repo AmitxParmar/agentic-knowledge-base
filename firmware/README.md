@@ -3,9 +3,32 @@
 | Directory | Purpose |
 |---|---|
 | `smoke/` | Bench self-test: proves flash + USB serial + JSON framing at 115200 |
+| `sensortest/` | Bench check for **three** IR modules plus the HC-SR04; no wire contract |
 | `telemetry/` | Phase 2 firmware: HC-SR04 + two line sensors, newline JSON, no motors |
 
 Board currently attached: **Arduino Uno R3** (`arduino:avr:uno`).
+
+## Wiring — `sensortest/` (three sensors, hardware check)
+
+Use this before `telemetry/` when the third sensor's health is unknown. Same
+pins, plus the third channel on A1:
+
+| Module | Module pin | Uno pin |
+|---|---|---|
+| HC-SR04 | VCC / GND | **5V** / **GND** |
+| HC-SR04 | TRIG / ECHO | **D7** / **D8** |
+| IR 1 (left) | VCC / GND / OUT | **5V** / **GND** / **A0** |
+| IR 2 (centre) | VCC / GND / OUT | **5V** / **GND** / **A1** |
+| IR 3 (right) | VCC / GND / OUT | **5V** / **GND** / **A2** |
+
+Three-pin modules have no analog output: `OUT` is already a comparator
+decision, so `analogRead` shows roughly `0` or `1023` and the `out=` column is
+the one to trust. If a channel is alive but never flips between white paper and
+black tape, turn the small potentiometer on that module until its LED changes
+state.
+
+`telemetry/` keeps the two-sensor layout until the third module passes this
+test.
 
 ## Wiring — `telemetry/`
 
