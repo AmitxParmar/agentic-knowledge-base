@@ -18,7 +18,8 @@
 | T4 | done | `core` migrations, idempotent seed, migration test against a real Postgres |
 | T5 | implemented, smoke-tested | ingest, dedupe, gap counting, dead letters, latest-state ordering, heartbeat sweep |
 | T6 | implemented, smoke-tested | devices, detail, telemetry, stats, SSE with `Last-Event-ID` replay |
-| T7–T11 | pending | firmware, bridge, web page, Render deploy, bench demo |
+| T7 | bench smoke passed | `firmware/smoke` flashes and prints JSON at 115200; sensor firmware waits on the pin map |
+| T8–T11 | pending | bridge, web page, Render deploy, bench demo |
 
 ### Verification run (2026-11-17, local Docker Postgres 16 + Mosquitto 2)
 
@@ -153,6 +154,8 @@ One JSON object per line, UTF-8, `\n` terminated, ≤ 200 bytes, 115200 baud, 5 
 | `batt_mv` | int \| absent | Only if a divider is wired |
 
 Pins are `[HW-TBD]` in a `config.h` with placeholder defaults; they must be confirmed against the physical wiring before flashing.
+
+Bench note (2026-11-17): the Uno's `println` emits `\r\n`. Firmware will write `\n` explicitly, and the bridge trims a trailing `\r` so a `println`-based sketch still parses. `firmware/smoke` confirms the 115200 JSON-line path.
 
 ### 6.2 Bridge mapping (serial → MQTT)
 

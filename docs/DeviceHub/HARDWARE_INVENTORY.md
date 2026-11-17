@@ -21,7 +21,7 @@ Hardware facts are the input to Phase 2 (first vertical slice) and Phase 4 (robo
 
 | # | Component | Required detail | Status | Notes / source |
 |---|---|---|---|---|
-| H1 | Arduino board | Manufacturer, exact model, silkscreen marking, logic voltage | `working` (reported) | **Arduino Nano** (ATmega328P, 5 V logic, 16 MHz, 2 KB SRAM, single USB UART, no network stack). Reported working by the owner; enumeration on this machine not yet verified. |
+| H1 | Arduino board | Manufacturer, exact model, silkscreen marking, logic voltage | `working` — **Uno R3** detected | USB `2341:0043` ("Arduino SA Uno R3, CDC ACM") on `/dev/ttyACM0`, `arduino:avr:uno`, core `1.8.8`. Owner originally reported a **Nano**; confirm which board is the bench target. Both are ATmega328P / 5 V, so the firmware design is unchanged apart from pin count and form factor. |
 | H2 | Motor driver / controller | Model, channel count, max current, logic vs motor supply | `not inspected` | Owner reports present; model unconfirmed. Not needed for the Phase 2 telemetry slice. |
 | H3 | Ultrasonic distance sensor | Model, trigger/echo or I2C, supply voltage, measured range | `not inspected` | Owner reports present; model unconfirmed. Likely HC-SR04-class; a 5 V Nano accepts its echo directly. Bench test required. |
 | H4 | Line-following sensors | Technology (IR reflectance vs analog), count, spacing | `not inspected` | Owner reports IR sensors present; count and output type unconfirmed. The contract assumes three channels. |
@@ -48,12 +48,12 @@ Do not record a wiring plan until H1–H7 are identified. Do not record voltage 
 
 ## 4. Bench tests still required
 
-These are Phase 4 gates, not Phase 1 work. None has been performed.
+These are Phase 4 gates, not Phase 1 work. Enumerating and uploading were performed on the **Uno R3** on 2026-11-17; the rest are untested.
 
 | Test | Pass condition | Status |
 |---|---|---|
-| Board enumerates over USB | Host sees a stable serial device across replug | `not tested` |
-| Upload a trivial sketch | Sketch runs; serial output observed | `not tested` |
+| Board enumerates over USB | Host sees a stable serial device across replug | `pass` — Uno R3 on `/dev/ttyACM0` (USB `2341:0043`, `cdc_acm`), `arduino-cli board list` resolves `arduino:avr:uno` |
+| Upload a trivial sketch | Sketch runs; serial output observed | `pass` — 2026-11-17, `firmware/smoke` prints `{"seq":n,"ms":…}` every second at 115200; captured with a raw read |
 | Ultrasonic returns plausible distances | Readings track a moving hand between known distances | `not tested` |
 | Each line sensor responds to contrast | Per-channel values change on tape vs floor | `not tested` |
 | Motor driver moves one wheel (wheels lifted) | Direction and PWM response correct at low duty | `not tested` |
