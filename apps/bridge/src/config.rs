@@ -23,6 +23,8 @@ pub struct BridgeSettings {
     /// Defaults to `d_<device_id>`, matching the ACL in `deploy/mosquitto/acl`.
     pub mqtt_username: Option<String>,
     pub mqtt_password: Option<String>,
+    /// Cloud brokers offer TLS only (usually 8883).
+    pub mqtt_tls: bool,
     /// Contract prefix, `dh/v1`. Topics are `{prefix}/d/{id}/telemetry`.
     pub topic_prefix: String,
     /// Events held while the broker is unreachable.
@@ -59,6 +61,7 @@ impl BridgeSettings {
             mqtt_username: optional(&get, "MQTT_USERNAME")
                 .or_else(|| Some(format!("d_{device_id}"))),
             mqtt_password: optional(&get, "MQTT_PASSWORD"),
+            mqtt_tls: parse_or(&get, "MQTT_TLS", false)?,
             topic_prefix: optional(&get, "MQTT_TOPIC_PREFIX")
                 .unwrap_or_else(|| "dh/v1".to_string())
                 .trim_end_matches('/')
@@ -125,6 +128,7 @@ mod tests {
         assert_eq!(s.baud, 115200);
         assert_eq!(s.mqtt_port, 1883);
         assert_eq!(s.buffer_capacity, 1000);
+        assert!(!s.mqtt_tls);
         assert_eq!(s.topic_prefix, "dh/v1");
         assert_eq!(
             s.telemetry_topic(),
@@ -139,6 +143,18 @@ mod tests {
             s.mqtt_username.as_deref(),
             Some("d_0192f3c4-1a2b-7c3d-8e4f-5a6b7c8d9e0f")
         );
+    }
+
+    #[test]
+    fn reads_mqtt_tls_flag() {
+        let s = settings(&[
+            ("HUB_DEVICE_ID", DEVICE),
+            ("MQTT_TLS", "true"),
+            ("MQTT_PORT", "8883"),
+        ])
+        .expect("valid");
+        assert!(s.mqtt_tls);
+        assert_eq!(s.mqtt_port, 8883);
     }
 
     #[test]

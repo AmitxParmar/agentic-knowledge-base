@@ -9,7 +9,7 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
+use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS, Transport};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -49,6 +49,10 @@ pub async fn run(mut rx: mpsc::Receiver<TelemetryV1>, settings: BridgeSettings) 
         options.set_keep_alive(Duration::from_secs(30));
         if let Some(username) = &settings.mqtt_username {
             options.set_credentials(username, settings.mqtt_password.clone().unwrap_or_default());
+        }
+        if settings.mqtt_tls {
+            // System trust roots; cloud brokers use a public CA.
+            options.set_transport(Transport::tls_with_default_config());
         }
 
         let (client, mut eventloop) = AsyncClient::new(options, 8);

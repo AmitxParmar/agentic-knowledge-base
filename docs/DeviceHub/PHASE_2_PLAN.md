@@ -21,6 +21,7 @@
 | T7 | done | Uno R3; `firmware/telemetry` emits `l/c/r` and `dist_cm` at 5 Hz. All three IR modules respond (spans A0 39–973, A1 78–976, A2 443–747). A second HC-SR04 reads a stable 39–41 cm; the first module never echoed and is treated as faulty |
 | T8 | done | `apps/bridge`: serial → MQTT, QoS 1 with ack-gated queue, backoff reconnect, bounded buffer. Broker-outage replay verified locally |
 | T9–T11 | pending | web page, Render deploy, bench demo |
+| T10a | done | `MQTT_TLS` for the hub and the bridge (`Transport::tls_with_default_config`), so a cloud broker on 8883 works without code changes |
 
 ### Verification run (2026-11-17, local Docker Postgres 16 + Mosquitto 2)
 

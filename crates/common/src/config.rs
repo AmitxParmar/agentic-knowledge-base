@@ -31,6 +31,8 @@ pub struct Settings {
     pub mqtt_client_id: String,
     pub mqtt_username: Option<String>,
     pub mqtt_password: Option<String>,
+    /// Cloud brokers offer TLS only (usually 8883). Local Mosquitto uses plain TCP.
+    pub mqtt_tls: bool,
     /// Contract prefix, `dh/v1`. Topics are `{prefix}/d/{id}/{kind}`.
     pub mqtt_topic_prefix: String,
     /// A device is offline when nothing has been seen for this long.
@@ -88,6 +90,7 @@ impl Settings {
             }),
             mqtt_username: optional(&get, "MQTT_USERNAME"),
             mqtt_password: optional(&get, "MQTT_PASSWORD"),
+            mqtt_tls: parse_or(&get, "MQTT_TLS", false)?,
             mqtt_topic_prefix: optional(&get, "MQTT_TOPIC_PREFIX")
                 .unwrap_or_else(|| "dh/v1".to_string())
                 .trim_end_matches('/')
@@ -151,6 +154,7 @@ mod tests {
 
         assert_eq!(s.bind.to_string(), "0.0.0.0:8080");
         assert_eq!(s.mqtt_port, 1883);
+        assert!(!s.mqtt_tls);
         assert_eq!(s.db_max_connections, 5);
         assert_eq!(s.heartbeat_timeout_secs, 15);
         assert_eq!(s.telemetry_retention_hours, 48);
@@ -167,6 +171,20 @@ mod tests {
             settings(&[("HUB_DATABASE_URL", "postgres://x")]).unwrap_err(),
             ConfigError::Missing("HUB_API_TOKEN")
         );
+    }
+
+    #[test]
+    fn reads_mqtt_tls_flag() {
+        let s = settings(&[
+            ("HUB_DATABASE_URL", "postgres://localhost/dh"),
+            ("HUB_API_TOKEN", "token"),
+            ("MQTT_TLS", "true"),
+            ("MQTT_PORT", "8883"),
+        ])
+        .expect("valid settings");
+
+        assert!(s.mqtt_tls);
+        assert_eq!(s.mqtt_port, 8883);
     }
 
     #[test]

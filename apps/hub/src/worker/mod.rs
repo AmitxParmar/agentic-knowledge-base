@@ -9,7 +9,7 @@ use std::time::Duration;
 use chrono::Utc;
 use devicehub_common::wire::{clamp_ts, parse_status, parse_telemetry, Reject};
 use devicehub_common::Settings;
-use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
+use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS, Transport};
 use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::broadcast;
@@ -48,6 +48,10 @@ async fn ingest_loop(
     options.set_clean_session(true);
     if let (Some(username), Some(password)) = (&settings.mqtt_username, &settings.mqtt_password) {
         options.set_credentials(username.clone(), password.clone());
+    }
+    if settings.mqtt_tls {
+        // System trust roots; cloud brokers use a public CA.
+        options.set_transport(Transport::tls_with_default_config());
     }
 
     let (client, mut eventloop) = AsyncClient::new(options, 64);
