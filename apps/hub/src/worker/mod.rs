@@ -195,7 +195,7 @@ async fn handle_telemetry(
     .bind(telemetry.fw_version.clone())
     .bind(telemetry.distance_cm)
     .bind(telemetry.line.map(|line| line.l))
-    .bind(telemetry.line.map(|line| line.c))
+    .bind(telemetry.line.and_then(|line| line.c))
     .bind(telemetry.line.map(|line| line.r))
     .bind(telemetry.motion_state())
     .bind(telemetry.motion.and_then(|motion| motion.left_pwm))

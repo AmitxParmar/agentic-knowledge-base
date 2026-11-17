@@ -19,7 +19,10 @@ pub const CLOCK_SKEW_SECS: i64 = 300;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineSensors {
     pub l: i32,
-    pub c: i32,
+    /// Absent on devices with two sensors (the Phase 2 bench device). Never
+    /// inferred as zero.
+    #[serde(default)]
+    pub c: Option<i32>,
     pub r: i32,
 }
 
@@ -297,6 +300,18 @@ mod tests {
         let (stored, skew) = clamp_ts(past, now);
         assert!(skew);
         assert_eq!(stored, now);
+    }
+
+    #[test]
+    fn accepts_two_sensor_devices() {
+        let body = String::from_utf8(payload("")).unwrap().replace(
+            r#""line":{"l":120,"c":860,"r":130}"#,
+            r#""line":{"l":120,"r":130}"#,
+        );
+        let telemetry = parse_telemetry(device(), body.as_bytes()).expect("two sensors");
+        let line = telemetry.line.expect("line block");
+        assert_eq!(line.c, None);
+        assert_eq!(line.r, 130);
     }
 
     #[test]

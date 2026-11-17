@@ -17,8 +17,11 @@
 //   * 4-pin module (VCC, GND, DO, AO) -> wire AO here, get 0..1023
 //   * 3-pin module (VCC, GND, OUT)    -> wire OUT here, get ~0 or ~1023
 // The firmware reads them with analogRead, which works for both.
+//
+// This bench device has TWO sensors (confirmed 2026-11-17), so there is no
+// centre channel. `line.c` is therefore omitted from the payload instead of
+// being invented.
 #define PIN_LINE_L A0
-#define PIN_LINE_C A1
 #define PIN_LINE_R A2
 
 // Optional battery divider. Leave disabled until a divider is actually wired:

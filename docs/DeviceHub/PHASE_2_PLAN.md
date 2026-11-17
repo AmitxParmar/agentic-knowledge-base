@@ -94,7 +94,7 @@ Consequences:
 ```mermaid
 flowchart LR
   subgraph Device
-    N["Arduino Nano<br/>HC-SR04 + 3 IR sensors"]
+    N["Arduino Uno R3<br/>HC-SR04 + 2 IR sensors"]
   end
   subgraph Laptop["Host (laptop)"]
     B["bridge<br/>serial -> MQTT"]
@@ -141,7 +141,7 @@ Rule: latest state updates only when the event is newer. Same `boot_id`: compare
 One JSON object per line, UTF-8, `\n` terminated, ≤ 200 bytes, 115200 baud, 5 Hz default.
 
 ```json
-{"v":1,"seq":18422,"ms":921440,"dist_cm":23.4,"line":[120,860,130],"batt_mv":7400}
+{"v":1,"seq":18422,"ms":921440,"dist_cm":23.4,"line":{"l":120,"r":130},"batt_mv":7400}
 ```
 
 | Field | Type | Rule |
@@ -165,7 +165,7 @@ Bench note (2026-11-17): the Uno's `println` emits `\r\n`. Firmware will write `
 | `seq` | `seq` |
 | `ms` | `ts_mono_ms` |
 | `dist_cm` | `distance_cm` |
-| `line[0..2]` | `line.l / line.c / line.r` |
+| `line.l`, `line.r` (and `line.c` when present) | `line.l / line.c / line.r`; `c` stays absent for this two-sensor device |
 | `batt_mv` | `power.battery_mv` |
 | — | `device_id`, `boot_id` (new UUID per bridge start), `ts` (RFC 3339 UTC), `fw_version`, `motion.state = "idle"` |
 
