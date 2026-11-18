@@ -36,23 +36,38 @@ render services create \
   --repo https://github.com/AmitxParmar/agentic-knowledge-base \
   --branch feat/devicehub-phase-2-telemetry \
   --plan free \
-  --region oregon \
+  --region virginia \
   --health-check-path /healthz \
-  --auto-deploy \
+  --auto-deploy=false \
   --output json
 ```
 
 `--region` should be the one closest to your Neon project; cross-region calls
-add latency to every request and to each ingest batch.
+add latency to every request and to each ingest batch. This deployment used
+`virginia` because the Neon project lives in `us-east-1`.
 
-The first deploy will fail the health check, because no environment variables
-exist yet. That is expected — set them next, then redeploy.
+`--auto-deploy=false` only turns off *git-push* deploys; creating a service
+still starts a first deploy immediately. That deploy fails the health check,
+because no environment variables exist yet. That is expected — set them next,
+then redeploy.
+
+Created service (recorded for reference):
+
+| Field | Value |
+|---|---|
+| Service | `devicehub-hub` |
+| ID | `srv-dbup4mdg1s2s73chcl30` |
+| URL | `https://devicehub-hub.onrender.com` |
+| Region | `virginia` |
+| Branch | `feat/devicehub-phase-2-telemetry` |
+| Dockerfile / context | `./Dockerfile` / `.` |
 
 ### Set environment variables
 
-Dashboard: **Service → Environment → Add Environment Variable**. The CLI has no
-secret-aware flag (`--env-var KEY=VALUE` stores plaintext and shows up in shell
-history), so use the dashboard for the credentials.
+Dashboard: **Service → Environment → Add Environment Variable**. The CLI cannot
+do this: `render services create` runs before the service exists and
+`render services update` has no `--env-var` flag. Adding variables always
+triggers a new deploy, which is the redeploy referenced above.
 
 | Variable | Required | Example | Notes |
 |---|---|---|---|
@@ -89,6 +104,34 @@ or unpooled, not that Render failed.
 
 Boot log lines to look for: `hub api listening`, `subscribed`, then
 `device marked offline` after 15 s of silence — that last one is normal.
+
+Observed on the first deploy (build works, runtime stops on missing config):
+
+```
+#18 Finished `release` profile [optimized] target(s) in 1m 19s
+#19 COPY --from=builder /src/target/release/all /app/all
+==> Deploying...
+Error: HUB_DATABASE_URL must be set
+==> Exited with status 1
+```
+
+That is a config failure, not a build failure: the image compiles and starts
+inside Render's builder, and `Settings::from_env` refuses to boot without the
+required variables. Add them and redeploy.
+
+### Neon URL detail
+
+The Knowledge Base uses `postgresql+asyncpg://…` (SQLAlchemy). `sqlx` does not
+understand the `+asyncpg` suffix — drop it:
+
+```
+postgresql://user:pass@ep-…-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require
+```
+
+The hub may share the existing Neon database. It only creates and touches the
+`core` schema (`core.device_latest_state`, `core.telemetry_event`,
+`core.dead_letter`), so there is no collision with the Knowledge Base tables.
+
 
 ## 4. Point the dashboard at it
 
