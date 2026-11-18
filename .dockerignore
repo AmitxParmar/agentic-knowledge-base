@@ -1,0 +1,20 @@
+# Build context for the DeviceHub hub image (root Dockerfile).
+# The Dockerfile copies only the Rust workspace, so excluding the JS/Python
+# trees keeps the Render upload small.
+
+.git
+.github
+**/node_modules
+**/.next
+**/.turbo
+**/.venv
+target
+graphify-out
+docs
+firmware
+apps/web
+apps/docs
+apps/api
+packages
+deploy
+**/*.md
