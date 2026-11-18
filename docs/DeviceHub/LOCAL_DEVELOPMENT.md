@@ -213,3 +213,37 @@ Each run writes a JSON file recording hardware, OS, dataset size, event rate, co
 ## 9. CI
 
 CI runs: format, clippy, Rust tests with ephemeral services, migration check on an empty DB, Python lint/tests/evals (smoke subset), web lint/typecheck/tests, container builds, dependency scans, and a short Compose integration test (simulator → ingest → API). The full benchmark and full eval suite run on demand or nightly.
+
+## 10. DeviceHub dashboard (implemented, T9)
+
+> Sections 6 and 8 above describe the planned system (`just …`, ClickHouse, `hub-api`). This section documents what actually runs today.
+
+Routes live in the existing Next.js app:
+
+- `/devicehub` — fleet list with presence and the newest frame
+- `/devicehub/[deviceId]` — readings, distance/line charts, live SSE feed, recent frames
+
+Server-side environment (never prefix with `NEXT_PUBLIC_`):
+
+| Variable | Example | Notes |
+|---|---|---|
+| `HUB_API_URL` | `http://localhost:8080` | Hub base URL; on Render it is the service's public URL |
+| `HUB_API_TOKEN` | same value as the hub's `HUB_API_TOKEN` | Bearer token for `/v1/*` |
+
+The browser never talks to the hub directly. `EventSource` cannot send an
+`Authorization` header, so `app/api/devicehub/*` proxies attach the token and
+forward the hub's status and body unchanged. `Last-Event-ID` is forwarded, so a
+reconnect replays the gap.
+
+```bash
+# terminal 1 — hub (from the repo root; env from apps/hub/.env)
+cargo run -p devicehub-hub --bin all
+
+# terminal 2 — web
+cd apps/web && pnpm dev
+```
+
+Cold start: a Render free instance sleeps after ~15 minutes of no inbound HTTP.
+The dashboard shows "Waking the device hub" for timeouts and offers a retry
+rather than retrying silently, because a cold start can take a minute.
+

@@ -1,0 +1,176 @@
+.page {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+
+.title {
+  margin: var(--space-1) 0 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: var(--space-1) 0 0;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+
+.refresh {
+  padding: var(--space-2) var(--space-4);
+  font-size: 13px;
+  color: hsl(var(--foreground));
+  background: var(--inset);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-control, 8px);
+  cursor: pointer;
+}
+
+.refresh:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.summary {
+  margin: 0;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100%;
+  padding: var(--space-6);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-card, 16px);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.card:hover {
+  border-color: hsl(var(--border) / 0.9);
+  background: var(--surface-raised);
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.cardId {
+  margin: var(--space-1) 0 0;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  font-family: var(--font-geist-mono, ui-monospace, monospace);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.online {
+  color: hsl(var(--success));
+  background: hsl(var(--success) / 0.12);
+}
+
+.offline {
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid hsl(var(--border) / 0.5);
+}
+
+.metric dt {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+
+.metric dd {
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cardFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: auto;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+
+.cardLink {
+  color: var(--accent-ink);
+}

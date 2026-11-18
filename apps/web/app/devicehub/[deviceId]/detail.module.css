@@ -1,0 +1,232 @@
+.page {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.back {
+  align-self: flex-start;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+  text-decoration: none;
+}
+
+.back:hover {
+  color: hsl(var(--foreground));
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+
+.title {
+  margin: var(--space-1) 0 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: var(--space-1) 0 0;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  font-family: var(--font-geist-mono, ui-monospace, monospace);
+}
+
+.headerMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.metaText {
+  font-variant-numeric: tabular-nums;
+}
+
+.chip,
+.stream {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.online,
+.streamLive {
+  color: hsl(var(--success));
+  background: hsl(var(--success) / 0.12);
+}
+
+.offline,
+.stream {
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.warning {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: 12px;
+  color: hsl(var(--warning));
+  background: hsl(var(--warning) / 0.1);
+  border: 1px solid hsl(var(--warning) / 0.3);
+  border-radius: var(--radius-control, 8px);
+}
+
+.readings {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-card, 16px);
+  background: var(--surface);
+}
+
+@media (max-width: 720px) {
+  .readings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.reading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border-right: 1px solid hsl(var(--border) / 0.5);
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.reading:nth-child(4n) {
+  border-right: none;
+}
+
+.reading:nth-last-child(-n + 4) {
+  border-bottom: none;
+}
+
+@media (max-width: 720px) {
+  .reading:nth-child(4n) {
+    border-right: 1px solid hsl(var(--border) / 0.5);
+  }
+
+  .reading:nth-child(2n) {
+    border-right: none;
+  }
+
+  .reading:nth-last-child(-n + 4) {
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+  }
+
+  .reading:nth-last-child(-n + 2) {
+    border-bottom: none;
+  }
+}
+
+.readingLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground));
+}
+
+.readingValue {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sectionMeta {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-card, 16px);
+  background: var(--surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground));
+  background: var(--surface);
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.table td {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover {
+  background: hsl(var(--foreground) / 0.03);
+}
+
+.mono {
+  font-family: var(--font-geist-mono, ui-monospace, monospace);
+  color: hsl(var(--muted-foreground));
+}

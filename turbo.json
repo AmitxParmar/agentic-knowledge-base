@@ -1,6 +1,7 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "stream",
+  "globalEnv": ["HUB_API_URL", "HUB_API_TOKEN"],
   "globalPassThroughEnv": [
     "USERNAME",
     "USERPROFILE",

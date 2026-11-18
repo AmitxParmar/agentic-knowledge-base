@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **In progress — T1–T6 implemented; T7–T11 pending** |
+| Status | **In progress — T1–T9 implemented; T10–T11 pending** |
 | Predecessor | Phase 1 / S0, recorded in [PHASE_1_REPORT](PHASE_1_REPORT.md) |
 | Branch | `feat/devicehub-phase-2-telemetry` (cut from the Phase 1 branch) |
 | Scope | Real Nano sensor data → bridge → MQTT → Rust ingest → PostgreSQL → live page |
@@ -20,7 +20,8 @@
 | T6 | implemented, smoke-tested | devices, detail, telemetry, stats, SSE with `Last-Event-ID` replay |
 | T7 | done | Uno R3; `firmware/telemetry` emits `l/c/r` and `dist_cm` at 5 Hz. All three IR modules respond (spans A0 39–973, A1 78–976, A2 443–747). A second HC-SR04 reads a stable 39–41 cm; the first module never echoed and is treated as faulty |
 | T8 | done | `apps/bridge`: serial → MQTT, QoS 1 with ack-gated queue, backoff reconnect, bounded buffer. Broker-outage replay verified locally |
-| T9–T11 | pending | web page, Render deploy, bench demo |
+| T9 | done | `/devicehub` fleet + `/devicehub/[deviceId]` detail in `apps/web`, fed by same-origin proxies (`app/api/devicehub/*`) that attach `HUB_API_TOKEN` server-side; SSE through the proxy updates live without reload |
+| T10–T11 | pending | Render deploy, bench demo |
 | T10a | done | `MQTT_TLS` for the hub and the bridge (`Transport::tls_with_default_config`), so a cloud broker on 8883 works without code changes |
 
 ### Verification run (2026-11-17, local Docker Postgres 16 + Mosquitto 2)
@@ -36,6 +37,20 @@
 | Auth | `/v1/*` 401 without token, 403 wrong token, 200 correct |
 | 16 s silence | device `offline`, latest state `online = false` |
 | Migrations run twice | second run a no-op; seed counts stay 1/1 |
+
+### Verification run (2026-11-18, T9 dashboard — real board, local Postgres + Mosquitto)
+
+| Check | Result |
+|---|---|
+| Board → bridge → hub | 90+ frames ingested from `/dev/ttyACM0` in short sessions; `accepted` counter matched |
+| `GET /api/devicehub/devices` via the Next proxy | 200, real device payload; no token in the browser bundle |
+| Telemetry proxy | 200, hub rows unchanged (limit clamped by the proxy whitelist) |
+| SSE through the proxy | `device.state` frames with `id:` arrived live while the bridge ran |
+| `/devicehub` in a headless browser | "Bench Nano", ONLINE chip, live cm and L/C/R values |
+| `/devicehub/[id]` in a headless browser | STREAM LIVE, charts from history, recent-frames table updating |
+| Hub unreachable (`HUB_API_URL` → closed port) | "Waking the device hub" + Retry, not a crash |
+| Empty fleet (stub returning `[]`) | "No devices registered" empty state |
+| `turbo lint`, `check-types`, `build` (web) | pass |
 
 
 ## 1. Goal
