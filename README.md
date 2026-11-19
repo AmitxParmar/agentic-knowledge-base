@@ -10,6 +10,8 @@ MVP scope is a single **Research Agent** (ReAct) over hybrid retrieval. The froz
 | **RAG** | HyDE → dense + PostgreSQL FTS hybrid (RRF) → rerank → cite chunks |
 | **Agentic** | LangGraph Research Agent: reason → retrieve → draft under an iteration cap |
 
+> **DeviceHub AI extension.** The repository is also the host for DeviceHub AI, an additive IoT/fleet-operations extension that reuses this retrieval and agent stack. The Knowledge Base described here remains independently runnable and is not replaced by DeviceHub work. Design documents live in [`docs/DeviceHub/`](docs/DeviceHub/README.md).
+
 ## Monorepo layout
 
 | Path | Role |

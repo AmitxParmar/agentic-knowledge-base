@@ -1,0 +1,25 @@
+# Local development broker for the DeviceHub telemetry slice.
+#
+# Mosquitto only. The database is Neon (see PHASE_2_PLAN.md §3), so there is
+# deliberately no Postgres service here.
+#
+# Usage:
+#   ./deploy/mosquitto/gen-passwd.sh
+#   docker compose -f deploy/compose.dev.yaml up -d
+
+name: devicehub-dev
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - mosquitto-data:/mosquitto/data
+
+volumes:
+  mosquitto-data:

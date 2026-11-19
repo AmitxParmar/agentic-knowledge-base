@@ -143,3 +143,85 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 2. Use `detect_changes` for code review.
 3. Use `get_affected_flows` to understand impact.
 4. Use `query_graph` pattern="tests_for" to check coverage.
+
+---
+
+# DeviceHub AI extension instructions
+
+This repository contains the existing Agentic Knowledge Base / Agentic RAG project. DeviceHub AI is an **additive extension**. The existing Knowledge Base must remain independently demonstrable and must not be replaced or regressed.
+
+## Required reading
+
+Before DeviceHub work, read in `docs/DeviceHub/`:
+
+- `PRD.md`
+- `PROJECT_SCOPE.md`
+- `SERVICE_BOUNDARIES.md`
+- `DATA_MODEL.md`
+- `EVENT_CONTRACTS.md`
+- `WORKFLOWS.md`
+- `SECURITY.md`
+- `LOCAL_DEVELOPMENT.md`
+- `REPOSITORY_INTEGRATION.md`
+- `HARDWARE_INVENTORY.md`
+- `adr/README.md` and the relevant ADRs (0001–0013).
+
+The detailed execution guide is `docs/DeviceHub/LLM_IMPLEMENTATION_GUIDE.md`. It defines the current phase, preservation rules, deliverables, and stop conditions. The Phase 1 record is `docs/DeviceHub/PHASE_1_REPORT.md`.
+
+## Preservation rules
+
+1. Never delete, move, rename, replace, or rewrite existing Agentic Knowledge Base functionality as part of DeviceHub work.
+2. Preserve the current Next.js chat UI, streaming, citations, Python/FastAPI app, document processing, embeddings, retrieval, reranking, LangGraph workflow, environment configuration, database structures, CI, and deployment.
+3. Build DeviceHub additively in this monorepo. Do not create a second standalone copy of the whole application.
+4. Follow the documented boundary: Rust owns device truth and safety; Python owns AI reasoning and RAG; Next.js owns presentation.
+5. Python must access DeviceHub evidence through Rust APIs, not by reading or writing Rust-owned tables.
+6. Never let an LLM directly control motor pins, determine safety thresholds, approve commands, or bypass backend policy.
+7. Do not invent hardware details. Keep unverified components and wiring `[HW-TBD]`.
+8. Do not introduce future-phase infrastructure early. In particular, do not add ClickHouse during Phase 1.
+9. Never overwrite user changes or run destructive database or Git operations.
+10. Do not push, merge, deploy, force-push, or modify the default branch without explicit approval.
+
+## Workflow for every DeviceHub task
+
+- Inspect Git status and diff before editing.
+- Read this file, relevant nested instruction files, and the relevant DeviceHub docs and ADRs.
+- Inspect actual repository conventions before choosing paths or commands.
+- State the intended changes and their preservation impact.
+- Make small additive changes.
+- Run focused tests and relevant regression checks.
+- Review the complete diff and report only checks actually performed.
+- Stop at the authorized phase boundary.
+
+## Current authorization: Phase 1 / S0 Foundations only
+
+`PROJECT_SCOPE.md` defines Phase 1 / S0 as component inventory, wiring diagram, schemas, repository setup, and documentation.
+
+Do not interpret this as authorization to build the full DeviceHub system.
+
+Phase 1 must:
+
+- Inspect and map the existing monorepo and its actual tooling.
+- Check the working tree and protect the existing Agentic Knowledge Base baseline.
+- Create or confirm the annotated tag `agentic-knowledgebase-v1.0.0` without moving or overwriting it.
+- Create or inspect branch `feat/devicehub-phase-1-foundation`; do not overwrite an existing branch.
+- Inventory the Arduino board, ultrasonic sensor, motor driver, line-following sensors, motors, power supply, and connectivity. Mark unknowns `[HW-TBD]`; ask the user for missing hardware details.
+- Keep the serial-to-host bridge in ADR-0008 provisional until hardware is confirmed.
+- Review `DATA_MODEL.md`, `EVENT_CONTRACTS.md`, and `WORKFLOWS.md` for consistency. Record questions; do not implement migrations or consumers.
+- Adapt only documentation that assumes a separate DeviceHub repository. Preserve all existing docs and apps.
+- Check local prerequisites and compare `LOCAL_DEVELOPMENT.md` with the real repository. Do not claim planned commands already exist.
+- Run existing Agentic Knowledge Base baseline checks and report results.
+- Produce the Phase 1 deliverables and acceptance report described in the guide and `PHASE_1_REPORT.md`.
+
+### Explicitly prohibited in Phase 1
+
+Do not implement Rust business logic or a new Rust service, MQTT producers/consumers, PostgreSQL migrations, ClickHouse, simulator, Arduino firmware, serial bridge, device APIs, telemetry ingestion, incidents, agent tools, new LangGraph workflows, command execution, approval UI, or DeviceHub frontend pages.
+
+Do not start Phase 2 without explicit user authorization.
+
+## ClickHouse
+
+Follow ADR-0004: PostgreSQL only for the first telemetry vertical slice; ClickHouse is a later S2 addition for raw telemetry and rollups, justified and benchmarked against PostgreSQL. Never add ClickHouse during Phase 1. It must not be the source of truth for control or safety decisions.
+
+## Completion report
+
+At the end of each DeviceHub phase, report the baseline commit and branch, tag status, repository map, hardware inventory and unknowns, contract review findings, documentation changes, local prerequisites, existing-project test results, unresolved decisions, and explicit confirmation that the original Agentic Knowledge Base was not removed or rewritten. Then stop and wait.

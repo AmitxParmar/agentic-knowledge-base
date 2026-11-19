@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/library", label: "Library" },
   { href: "/runs", label: "Runs" },
   { href: "/usage", label: "Usage" },
+  { href: "/devicehub", label: "DeviceHub" },
 ];
 
 export function SiteHeader() {

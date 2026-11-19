@@ -1,0 +1,150 @@
+# Firmware
+
+| Directory | Purpose |
+|---|---|
+| `smoke/` | Bench self-test: proves flash + USB serial + JSON framing at 115200 |
+| `sensortest/` | Bench check for **three** IR modules plus the HC-SR04; no wire contract |
+| `telemetry/` | Phase 2 firmware: HC-SR04 + two line sensors, newline JSON, no motors |
+
+Board currently attached: **Arduino Uno R3** (`arduino:avr:uno`).
+
+## Wiring — `sensortest/` (three sensors, hardware check)
+
+Use this before `telemetry/` when the third sensor's health is unknown. Same
+pins, plus the third channel on A1:
+
+| Module | Module pin | Uno pin |
+|---|---|---|
+| HC-SR04 | VCC / GND | **5V** / **GND** |
+| HC-SR04 | TRIG / ECHO | **D7** / **D8** |
+| IR 1 (left) | VCC / GND / OUT | **5V** / **GND** / **A0** |
+| IR 2 (centre) | VCC / GND / OUT | **5V** / **GND** / **A1** |
+| IR 3 (right) | VCC / GND / OUT | **5V** / **GND** / **A2** |
+
+Three-pin modules have no analog output: `OUT` is already a comparator
+decision, so `analogRead` shows roughly `0` or `1023` and the `out=` column is
+the one to trust. If a channel is alive but never flips between white paper and
+black tape, turn the small potentiometer on that module until its LED changes
+state.
+
+`telemetry/` keeps the two-sensor layout until the third module passes this
+test.
+
+## Wiring — `telemetry/`
+
+Nothing else should be connected. Motors and the motor driver stay unplugged
+in Phase 2.
+
+| Module | Module pin | Uno pin | Notes |
+|---|---|---|---|
+| HC-SR04 | VCC | **5V** | Uno is 5 V logic, so ECHO connects directly |
+| HC-SR04 | GND | **GND** | Common ground |
+| HC-SR04 | TRIG | **D7** | |
+| HC-SR04 | ECHO | **D8** | |
+| Line sensor, left | VCC | **5V** | |
+| Line sensor, left | GND | **GND** | |
+| Line sensor, left | OUT or AO | **A0** | AO if the module has both |
+| Line sensor, centre | VCC | **5V** | |
+| Line sensor, centre | GND | **GND** | |
+| Line sensor, centre | OUT or AO | **A1** | |
+| Line sensor, right | VCC | **5V** | |
+| Line sensor, right | GND | **GND** | |
+| Line sensor, right | OUT or AO | **A2** | |
+| Battery divider (optional) | — | **A3** | Leave unwired; `ENABLE_BATTERY` is 0 |
+
+Do not use:
+
+- **D0 / D1** — hardware serial, shared with USB.
+- **D2 / D3** — reserved for interrupts later (encoders, kill switch).
+- **D3, D5, D6, D9, D10, D11** — PWM, reserved for the motor driver.
+- **VIN** — do not connect a supply here while USB is plugged in.
+
+Power: USB alone is enough for three IR modules and an HC-SR04 (well under
+100 mA). Never power motors from the Uno's 5 V pin.
+
+### Line sensor levels (measured 2026-11-17)
+
+All three modules are 3-pin (`VCC, GND, OUT`) yet output an analog level, measured
+across white/black surfaces:
+
+| Channel | Low | High | Span |
+|---|---|---|---|
+| A0 (left) | 39 | 973 | 934 |
+| A1 (centre) | 78 | 976 | 898 |
+| A2 (right) | 443 | 747 | 304 |
+
+A2 is compressed — it never reaches either rail — but it tracks the same
+surfaces. Threshold per channel, not globally, and never assume `0`/`1023`.
+A 4-pin module's `AO` works the same way; a comparator-only `OUT` gives two
+levels instead.
+
+## Breadboard layout (mini board, 4-hole rows)
+
+A mini breadboard's rows are horizontal nodes: **every hole in one row is the
+same wire**, and the centre gap separates the left half from the right half.
+That has two consequences.
+
+1. **Never plug the 4-pin HC-SR04 along a row** — that shorts VCC, TRIG, ECHO
+   and GND together. Insert modules **across** the rows so each pin lands in
+   its own row.
+2. Use two rows as power buses:
+
+```
+row 1            [5V][5V][5V][5V] │ [ ][ ][ ][ ]    <- 5V bus
+row 2            [G ][G ][G ][G ] │ [ ][ ][ ][ ]    <- GND bus
+row 3-6          HC-SR04, one pin per row: VCC, TRIG, ECHO, GND
+row 7-9  left    IR left,   one pin per row: VCC, GND, OUT -> A0
+row 7-9  right   IR centre, one pin per row: VCC, GND, OUT -> A1
+row 10-12        IR right,  one pin per row: VCC, GND, OUT -> A2
+```
+
+With 4-hole rows the bus is exactly full: one lead from the Arduino plus three
+module leads.
+
+| From | To | Jumper |
+|---|---|---|
+| Arduino **5V** | row 1 | 1 male–male |
+| Arduino **GND** | row 2 | 1 male–male |
+| row 1 | HC-SR04 VCC | 1 |
+| row 1 | IR left VCC | 1 |
+| row 1 | IR centre VCC | 1 |
+| row 1 | IR right VCC | 1 |
+| row 2 | HC-SR04 GND | 1 |
+| row 2 | IR left GND | 1 |
+| row 2 | IR centre GND | 1 |
+| row 2 | IR right GND | 1 |
+| HC-SR04 TRIG | Arduino **D7** | 1 |
+| HC-SR04 ECHO | Arduino **D8** | 1 |
+| IR left OUT/AO | Arduino **A0** | 1 |
+| IR centre OUT/AO | Arduino **A1** | 1 |
+| IR right OUT/AO | Arduino **A2** | 1 |
+
+That is 15 jumpers. If you only have male–male leads, push the module pins
+into their own rows and run male–male from those rows to the Arduino; the
+Arduino's headers are female sockets, so male–male is what fits them either
+way.
+
+Order of work: **unplug USB**, wire ground first, then 5 V, then signals, check
+each module's silkscreen for VCC/GND order, then power up and flash.
+
+## Flash and read
+
+```bash
+arduino-cli compile --fqbn arduino:avr:uno firmware/telemetry
+arduino-cli upload  -p /dev/ttyACM0 --fqbn arduino:avr:uno firmware/telemetry
+
+stty -F /dev/ttyACM0 115200 raw -echo
+timeout 5 cat /dev/ttyACM0
+```
+
+Expected with sensors wired:
+
+```json
+{"v":1,"seq":1,"ms":200,"dist_cm":23.4,"line":{"l":120,"c":860,"r":130}}
+```
+
+With nothing connected, `dist_cm` is `null` and the line values float. That is
+expected, not a fault.
+
+`arduino-cli monitor` can print nothing when stdout is not a TTY; the
+`stty` + `cat` form above always works.
